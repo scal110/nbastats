@@ -1,0 +1,56 @@
+{
+  "team": "NOP",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "pts_per_game": 36.0,
+      "reb_per_game": 9.0,
+      "ast_per_game": 5.0,
+      "games_scanned": 1
+    },
+    "F": {
+      "pts_per_game": 34.0,
+      "reb_per_game": 17.0,
+      "ast_per_game": 8.0,
+      "games_scanned": 1
+    },
+    "C": {
+      "pts_per_game": 2.0,
+      "reb_per_game": 9.0,
+      "ast_per_game": 1.0,
+      "games_scanned": 1
+    },
+    "OTHER": {
+      "pts_per_game": 58.0,
+      "reb_per_game": 15.0,
+      "ast_per_game": 12.0,
+      "games_scanned": 1
+    }
+  },
+  "by_position_per100": {
+    "G": {
+      "pts_per100": 36000000.0,
+      "reb_per100": 9000000.0,
+      "ast_per100": 5000000.0,
+      "poss_agg": 0.0
+    },
+    "F": {
+      "pts_per100": 34000000.0,
+      "reb_per100": 17000000.0,
+      "ast_per100": 8000000.0,
+      "poss_agg": 0.0
+    },
+    "C": {
+      "pts_per100": 2000000.0,
+      "reb_per100": 9000000.0,
+      "ast_per100": 1000000.0,
+      "poss_agg": 0.0
+    },
+    "OTHER": {
+      "pts_per100": 58000000.0,
+      "reb_per100": 15000000.0,
+      "ast_per100": 12000000.0,
+      "poss_agg": 0.0
+    }
+  }
+}

@@ -1,0 +1,394 @@
+[
+  {
+    "player": "Miles Bridges",
+    "team": "Charlotte Hornets",
+    "side": "home",
+    "position": "F",
+    "stats": {
+      "PTS": {
+        "value": 16,
+        "last5_avg": 18.75,
+        "under_avg": true
+      },
+      "REB": {
+        "value": 5,
+        "last5_avg": 7.0,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 0,
+        "last5_avg": 3.75,
+        "under_avg": true
+      },
+      "MIN": {
+        "value": 33,
+        "last5_avg": 32.25,
+        "under_avg": false
+      }
+    }
+  },
+  {
+    "player": "LaMelo Ball",
+    "team": "Charlotte Hornets",
+    "side": "home",
+    "position": "G",
+    "stats": {
+      "PTS": {
+        "value": 17,
+        "last5_avg": 26.25,
+        "under_avg": true
+      },
+      "REB": {
+        "value": 7,
+        "last5_avg": 8.25,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 13,
+        "last5_avg": 9.5,
+        "under_avg": false
+      },
+      "MIN": {
+        "value": 36,
+        "last5_avg": 32.75,
+        "under_avg": false
+      }
+    }
+  },
+  {
+    "player": "Kon Knueppel",
+    "team": "Charlotte Hornets",
+    "side": "home",
+    "position": "G-F",
+    "stats": {
+      "PTS": {
+        "value": 5,
+        "last5_avg": 16.0,
+        "under_avg": true
+      },
+      "REB": {
+        "value": 3,
+        "last5_avg": 4.25,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 1,
+        "last5_avg": 2.0,
+        "under_avg": true
+      },
+      "MIN": {
+        "value": 27,
+        "last5_avg": 29.25,
+        "under_avg": true
+      }
+    }
+  },
+  {
+    "player": "Collin Sexton",
+    "team": "Charlotte Hornets",
+    "side": "home",
+    "position": "G",
+    "stats": {
+      "PTS": {
+        "value": 19,
+        "last5_avg": 18.5,
+        "under_avg": false
+      },
+      "REB": {
+        "value": 2,
+        "last5_avg": 2.5,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 4,
+        "last5_avg": 4.75,
+        "under_avg": true
+      },
+      "MIN": {
+        "value": 25,
+        "last5_avg": 26.75,
+        "under_avg": true
+      }
+    }
+  },
+  {
+    "player": "Ryan Kalkbrenner",
+    "team": "Charlotte Hornets",
+    "side": "home",
+    "position": "C",
+    "stats": {
+      "PTS": {
+        "value": 17,
+        "last5_avg": 9.5,
+        "under_avg": false
+      },
+      "REB": {
+        "value": 7,
+        "last5_avg": 7.25,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 0,
+        "last5_avg": 0.75,
+        "under_avg": true
+      },
+      "MIN": {
+        "value": 32,
+        "last5_avg": 26.5,
+        "under_avg": false
+      }
+    }
+  },
+  {
+    "player": "Moussa Diabaté",
+    "team": "Charlotte Hornets",
+    "side": "home",
+    "position": "F",
+    "stats": {
+      "PTS": {
+        "value": 10,
+        "last5_avg": 9.75,
+        "under_avg": false
+      },
+      "REB": {
+        "value": 6,
+        "last5_avg": 5.75,
+        "under_avg": false
+      },
+      "AST": {
+        "value": 1,
+        "last5_avg": 0.25,
+        "under_avg": false
+      },
+      "MIN": {
+        "value": 20,
+        "last5_avg": 20.0,
+        "under_avg": false
+      }
+    }
+  },
+  {
+    "player": "Tre Mann",
+    "team": "Charlotte Hornets",
+    "side": "home",
+    "position": "G",
+    "stats": {
+      "PTS": {
+        "value": 9,
+        "last5_avg": 6.0,
+        "under_avg": false
+      },
+      "REB": {
+        "value": 2,
+        "last5_avg": 3.25,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 0,
+        "last5_avg": 3.25,
+        "under_avg": true
+      },
+      "MIN": {
+        "value": 16,
+        "last5_avg": 20.5,
+        "under_avg": true
+      }
+    }
+  },
+  {
+    "player": "Brandon Miller",
+    "team": "Charlotte Hornets",
+    "side": "home",
+    "position": "F",
+    "stats": {
+      "PTS": {
+        "value": 4,
+        "last5_avg": 25.0,
+        "under_avg": true
+      },
+      "REB": {
+        "value": 0,
+        "last5_avg": 0.0,
+        "under_avg": false
+      },
+      "AST": {
+        "value": 1,
+        "last5_avg": 7.0,
+        "under_avg": true
+      },
+      "MIN": {
+        "value": 9,
+        "last5_avg": 31.0,
+        "under_avg": true
+      }
+    }
+  },
+  {
+    "player": "Donte DiVincenzo",
+    "team": "Minnesota Timberwolves",
+    "side": "away",
+    "position": "G",
+    "stats": {
+      "PTS": {
+        "value": 14,
+        "last5_avg": 12.25,
+        "under_avg": false
+      },
+      "REB": {
+        "value": 4,
+        "last5_avg": 2.25,
+        "under_avg": false
+      },
+      "AST": {
+        "value": 6,
+        "last5_avg": 3.25,
+        "under_avg": false
+      },
+      "MIN": {
+        "value": 34,
+        "last5_avg": 29.0,
+        "under_avg": false
+      }
+    }
+  },
+  {
+    "player": "Jaden McDaniels",
+    "team": "Minnesota Timberwolves",
+    "side": "away",
+    "position": "F",
+    "stats": {
+      "PTS": {
+        "value": 30,
+        "last5_avg": 16.0,
+        "under_avg": false
+      },
+      "REB": {
+        "value": 7,
+        "last5_avg": 3.75,
+        "under_avg": false
+      },
+      "AST": {
+        "value": 1,
+        "last5_avg": 1.0,
+        "under_avg": false
+      },
+      "MIN": {
+        "value": 41,
+        "last5_avg": 31.5,
+        "under_avg": false
+      }
+    }
+  },
+  {
+    "player": "Anthony Edwards",
+    "team": "Minnesota Timberwolves",
+    "side": "away",
+    "position": "G",
+    "stats": {
+      "PTS": {
+        "value": 5,
+        "last5_avg": 36.0,
+        "under_avg": true
+      },
+      "REB": {
+        "value": 1,
+        "last5_avg": 5.5,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 0,
+        "last5_avg": 3.0,
+        "under_avg": true
+      },
+      "MIN": {
+        "value": 3,
+        "last5_avg": 37.0,
+        "under_avg": true
+      }
+    }
+  },
+  {
+    "player": "Naz Reid",
+    "team": "Minnesota Timberwolves",
+    "side": "away",
+    "position": "C-F",
+    "stats": {
+      "PTS": {
+        "value": 5,
+        "last5_avg": 11.25,
+        "under_avg": true
+      },
+      "REB": {
+        "value": 5,
+        "last5_avg": 6.25,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 1,
+        "last5_avg": 1.75,
+        "under_avg": true
+      },
+      "MIN": {
+        "value": 22,
+        "last5_avg": 23.25,
+        "under_avg": true
+      }
+    }
+  },
+  {
+    "player": "Rudy Gobert",
+    "team": "Minnesota Timberwolves",
+    "side": "away",
+    "position": "C",
+    "stats": {
+      "PTS": {
+        "value": 9,
+        "last5_avg": 8.5,
+        "under_avg": false
+      },
+      "REB": {
+        "value": 6,
+        "last5_avg": 9.0,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 2,
+        "last5_avg": 1.0,
+        "under_avg": false
+      },
+      "MIN": {
+        "value": 38,
+        "last5_avg": 30.0,
+        "under_avg": false
+      }
+    }
+  },
+  {
+    "player": "Julius Randle",
+    "team": "Minnesota Timberwolves",
+    "side": "away",
+    "position": "F-C",
+    "stats": {
+      "PTS": {
+        "value": 33,
+        "last5_avg": 25.0,
+        "under_avg": false
+      },
+      "REB": {
+        "value": 5,
+        "last5_avg": 6.75,
+        "under_avg": true
+      },
+      "AST": {
+        "value": 6,
+        "last5_avg": 5.25,
+        "under_avg": false
+      },
+      "MIN": {
+        "value": 36,
+        "last5_avg": 35.25,
+        "under_avg": false
+      }
+    }
+  }
+]

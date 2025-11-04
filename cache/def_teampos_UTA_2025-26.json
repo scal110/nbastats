@@ -1,0 +1,56 @@
+{
+  "team": "UTA",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "pts_per_game": 0.0,
+      "reb_per_game": 0.0,
+      "ast_per_game": 0.0,
+      "games_scanned": 0
+    },
+    "F": {
+      "pts_per_game": 0.0,
+      "reb_per_game": 0.0,
+      "ast_per_game": 0.0,
+      "games_scanned": 0
+    },
+    "C": {
+      "pts_per_game": 0.0,
+      "reb_per_game": 0.0,
+      "ast_per_game": 0.0,
+      "games_scanned": 0
+    },
+    "OTHER": {
+      "pts_per_game": 0.0,
+      "reb_per_game": 0.0,
+      "ast_per_game": 0.0,
+      "games_scanned": 0
+    }
+  },
+  "by_position_per100": {
+    "G": {
+      "pts_per100": 0.0,
+      "reb_per100": 0.0,
+      "ast_per100": 0.0,
+      "poss_agg": 0.0
+    },
+    "F": {
+      "pts_per100": 0.0,
+      "reb_per100": 0.0,
+      "ast_per100": 0.0,
+      "poss_agg": 0.0
+    },
+    "C": {
+      "pts_per100": 0.0,
+      "reb_per100": 0.0,
+      "ast_per100": 0.0,
+      "poss_agg": 0.0
+    },
+    "OTHER": {
+      "pts_per100": 0.0,
+      "reb_per100": 0.0,
+      "ast_per100": 0.0,
+      "poss_agg": 0.0
+    }
+  }
+}

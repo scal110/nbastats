@@ -1,0 +1,56 @@
+{
+  "team": "PHI",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "pts_per_game": 17.0,
+      "reb_per_game": 2.333,
+      "ast_per_game": 3.333,
+      "games_scanned": 3
+    },
+    "F": {
+      "pts_per_game": 18.333,
+      "reb_per_game": 6.0,
+      "ast_per_game": 2.333,
+      "games_scanned": 3
+    },
+    "C": {
+      "pts_per_game": 11.0,
+      "reb_per_game": 12.333,
+      "ast_per_game": 1.333,
+      "games_scanned": 3
+    },
+    "OTHER": {
+      "pts_per_game": 67.0,
+      "reb_per_game": 31.0,
+      "ast_per_game": 15.0,
+      "games_scanned": 3
+    }
+  },
+  "by_position_per100": {
+    "G": {
+      "pts_per100": 17000000.0,
+      "reb_per100": 2333333.333,
+      "ast_per100": 3333333.333,
+      "poss_agg": 0.0
+    },
+    "F": {
+      "pts_per100": 18333333.333,
+      "reb_per100": 6000000.0,
+      "ast_per100": 2333333.333,
+      "poss_agg": 0.0
+    },
+    "C": {
+      "pts_per100": 11000000.0,
+      "reb_per100": 12333333.333,
+      "ast_per100": 1333333.333,
+      "poss_agg": 0.0
+    },
+    "OTHER": {
+      "pts_per100": 67000000.0,
+      "reb_per100": 31000000.0,
+      "ast_per100": 15000000.0,
+      "poss_agg": 0.0
+    }
+  }
+}

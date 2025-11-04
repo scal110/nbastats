@@ -1,0 +1,56 @@
+{
+  "team": "BOS",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "pts_per_game": 26.5,
+      "reb_per_game": 7.5,
+      "ast_per_game": 8.0,
+      "games_scanned": 4
+    },
+    "F": {
+      "pts_per_game": 21.25,
+      "reb_per_game": 10.75,
+      "ast_per_game": 3.25,
+      "games_scanned": 4
+    },
+    "C": {
+      "pts_per_game": 7.75,
+      "reb_per_game": 6.75,
+      "ast_per_game": 1.75,
+      "games_scanned": 4
+    },
+    "OTHER": {
+      "pts_per_game": 50.75,
+      "reb_per_game": 21.25,
+      "ast_per_game": 13.5,
+      "games_scanned": 4
+    }
+  },
+  "by_position_per100": {
+    "G": {
+      "pts_per100": 26500000.0,
+      "reb_per100": 7500000.0,
+      "ast_per100": 8000000.0,
+      "poss_agg": 0.0
+    },
+    "F": {
+      "pts_per100": 21250000.0,
+      "reb_per100": 10750000.0,
+      "ast_per100": 3250000.0,
+      "poss_agg": 0.0
+    },
+    "C": {
+      "pts_per100": 7750000.0,
+      "reb_per100": 6750000.0,
+      "ast_per100": 1750000.0,
+      "poss_agg": 0.0
+    },
+    "OTHER": {
+      "pts_per100": 50750000.0,
+      "reb_per100": 21250000.0,
+      "ast_per100": 13500000.0,
+      "poss_agg": 0.0
+    }
+  }
+}

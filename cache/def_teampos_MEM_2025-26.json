@@ -1,0 +1,56 @@
+{
+  "team": "MEM",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "pts_per_game": 32.0,
+      "reb_per_game": 5.75,
+      "ast_per_game": 9.5,
+      "games_scanned": 4
+    },
+    "F": {
+      "pts_per_game": 28.0,
+      "reb_per_game": 8.25,
+      "ast_per_game": 5.0,
+      "games_scanned": 4
+    },
+    "C": {
+      "pts_per_game": 9.75,
+      "reb_per_game": 5.75,
+      "ast_per_game": 1.25,
+      "games_scanned": 4
+    },
+    "OTHER": {
+      "pts_per_game": 59.25,
+      "reb_per_game": 32.25,
+      "ast_per_game": 14.5,
+      "games_scanned": 4
+    }
+  },
+  "by_position_per100": {
+    "G": {
+      "pts_per100": 32000000.0,
+      "reb_per100": 5750000.0,
+      "ast_per100": 9500000.0,
+      "poss_agg": 0.0
+    },
+    "F": {
+      "pts_per100": 28000000.0,
+      "reb_per100": 8250000.0,
+      "ast_per100": 5000000.0,
+      "poss_agg": 0.0
+    },
+    "C": {
+      "pts_per100": 9750000.0,
+      "reb_per100": 5750000.0,
+      "ast_per100": 1250000.0,
+      "poss_agg": 0.0
+    },
+    "OTHER": {
+      "pts_per100": 59250000.0,
+      "reb_per100": 32250000.0,
+      "ast_per100": 14500000.0,
+      "poss_agg": 0.0
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "team": "HOU",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "pts_per_game": 26.0,
+      "reb_per_game": 5.667,
+      "ast_per_game": 10.0,
+      "games_scanned": 3
+    },
+    "F": {
+      "pts_per_game": 22.667,
+      "reb_per_game": 5.667,
+      "ast_per_game": 3.667,
+      "games_scanned": 3
+    },
+    "C": {
+      "pts_per_game": 9.0,
+      "reb_per_game": 6.0,
+      "ast_per_game": 2.667,
+      "games_scanned": 3
+    },
+    "OTHER": {
+      "pts_per_game": 65.0,
+      "reb_per_game": 21.0,
+      "ast_per_game": 13.333,
+      "games_scanned": 3
+    }
+  },
+  "by_position_per100": {
+    "G": {
+      "pts_per100": 26000000.0,
+      "reb_per100": 5666666.667,
+      "ast_per100": 10000000.0,
+      "poss_agg": 0.0
+    },
+    "F": {
+      "pts_per100": 22666666.667,
+      "reb_per100": 5666666.667,
+      "ast_per100": 3666666.667,
+      "poss_agg": 0.0
+    },
+    "C": {
+      "pts_per100": 9000000.0,
+      "reb_per100": 6000000.0,
+      "ast_per100": 2666666.667,
+      "poss_agg": 0.0
+    },
+    "OTHER": {
+      "pts_per100": 65000000.0,
+      "reb_per100": 21000000.0,
+      "ast_per100": 13333333.333,
+      "poss_agg": 0.0
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "target_team_abbr": "WAS",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "total_pts_sum": 111.0,
+      "total_reb_sum": 32.0,
+      "total_ast_sum": 24.0,
+      "games_with_bucket": 2,
+      "games_scanned": 2,
+      "pts_per_game": 55.5,
+      "reb_per_game": 16.0,
+      "ast_per_game": 12.0,
+      "pts_per_game_when_present": 55.5,
+      "reb_per_game_when_present": 16.0,
+      "ast_per_game_when_present": 12.0
+    },
+    "F": {
+      "total_pts_sum": 73.0,
+      "total_reb_sum": 46.0,
+      "total_ast_sum": 11.0,
+      "games_with_bucket": 2,
+      "games_scanned": 2,
+      "pts_per_game": 36.5,
+      "reb_per_game": 23.0,
+      "ast_per_game": 5.5,
+      "pts_per_game_when_present": 36.5,
+      "reb_per_game_when_present": 23.0,
+      "ast_per_game_when_present": 5.5
+    },
+    "OTHER": {
+      "total_pts_sum": 23.0,
+      "total_reb_sum": 10.0,
+      "total_ast_sum": 10.0,
+      "games_with_bucket": 2,
+      "games_scanned": 2,
+      "pts_per_game": 11.5,
+      "reb_per_game": 5.0,
+      "ast_per_game": 5.0,
+      "pts_per_game_when_present": 11.5,
+      "reb_per_game_when_present": 5.0,
+      "ast_per_game_when_present": 5.0
+    },
+    "C": {
+      "total_pts_sum": 9.0,
+      "total_reb_sum": 5.0,
+      "total_ast_sum": 0.0,
+      "games_with_bucket": 1,
+      "games_scanned": 2,
+      "pts_per_game": 4.5,
+      "reb_per_game": 2.5,
+      "ast_per_game": 0.0,
+      "pts_per_game_when_present": 9.0,
+      "reb_per_game_when_present": 5.0,
+      "ast_per_game_when_present": 0.0
+    }
+  },
+  "meta": {
+    "games_scanned": 2,
+    "exclude_dnp": true
+  }
+}

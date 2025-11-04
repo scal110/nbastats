@@ -1,0 +1,56 @@
+{
+  "team": "SAC",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "pts_per_game": 21.667,
+      "reb_per_game": 7.0,
+      "ast_per_game": 4.667,
+      "games_scanned": 3
+    },
+    "F": {
+      "pts_per_game": 24.333,
+      "reb_per_game": 6.333,
+      "ast_per_game": 3.0,
+      "games_scanned": 3
+    },
+    "C": {
+      "pts_per_game": 3.667,
+      "reb_per_game": 7.667,
+      "ast_per_game": 2.333,
+      "games_scanned": 3
+    },
+    "OTHER": {
+      "pts_per_game": 71.333,
+      "reb_per_game": 24.0,
+      "ast_per_game": 14.667,
+      "games_scanned": 3
+    }
+  },
+  "by_position_per100": {
+    "G": {
+      "pts_per100": 21666666.667,
+      "reb_per100": 7000000.0,
+      "ast_per100": 4666666.667,
+      "poss_agg": 0.0
+    },
+    "F": {
+      "pts_per100": 24333333.333,
+      "reb_per100": 6333333.333,
+      "ast_per100": 3000000.0,
+      "poss_agg": 0.0
+    },
+    "C": {
+      "pts_per100": 3666666.667,
+      "reb_per100": 7666666.667,
+      "ast_per100": 2333333.333,
+      "poss_agg": 0.0
+    },
+    "OTHER": {
+      "pts_per100": 71333333.333,
+      "reb_per100": 24000000.0,
+      "ast_per100": 14666666.667,
+      "poss_agg": 0.0
+    }
+  }
+}

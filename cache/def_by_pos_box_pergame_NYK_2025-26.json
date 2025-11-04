@@ -1,0 +1,62 @@
+{
+  "target_team_abbr": "NYK",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "total_pts_sum": 146.0,
+      "total_reb_sum": 48.0,
+      "total_ast_sum": 39.0,
+      "games_with_bucket": 4,
+      "games_scanned": 4,
+      "pts_per_game": 36.5,
+      "reb_per_game": 12.0,
+      "ast_per_game": 9.75,
+      "pts_per_game_when_present": 36.5,
+      "reb_per_game_when_present": 12.0,
+      "ast_per_game_when_present": 9.75
+    },
+    "F": {
+      "total_pts_sum": 181.0,
+      "total_reb_sum": 98.0,
+      "total_ast_sum": 33.0,
+      "games_with_bucket": 4,
+      "games_scanned": 4,
+      "pts_per_game": 45.25,
+      "reb_per_game": 24.5,
+      "ast_per_game": 8.25,
+      "pts_per_game_when_present": 45.25,
+      "reb_per_game_when_present": 24.5,
+      "ast_per_game_when_present": 8.25
+    },
+    "OTHER": {
+      "total_pts_sum": 51.0,
+      "total_reb_sum": 9.0,
+      "total_ast_sum": 14.0,
+      "games_with_bucket": 4,
+      "games_scanned": 4,
+      "pts_per_game": 12.75,
+      "reb_per_game": 2.25,
+      "ast_per_game": 3.5,
+      "pts_per_game_when_present": 12.75,
+      "reb_per_game_when_present": 2.25,
+      "ast_per_game_when_present": 3.5
+    },
+    "C": {
+      "total_pts_sum": 25.0,
+      "total_reb_sum": 33.0,
+      "total_ast_sum": 4.0,
+      "games_with_bucket": 3,
+      "games_scanned": 4,
+      "pts_per_game": 6.25,
+      "reb_per_game": 8.25,
+      "ast_per_game": 1.0,
+      "pts_per_game_when_present": 8.333,
+      "reb_per_game_when_present": 11.0,
+      "ast_per_game_when_present": 1.333
+    }
+  },
+  "meta": {
+    "games_scanned": 4,
+    "exclude_dnp": true
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "team": "ORL",
+  "season": "2025-26",
+  "by_position_per_game": {
+    "G": {
+      "pts_per_game": 16.333,
+      "reb_per_game": 2.667,
+      "ast_per_game": 5.333,
+      "games_scanned": 3
+    },
+    "F": {
+      "pts_per_game": 19.333,
+      "reb_per_game": 6.667,
+      "ast_per_game": 3.667,
+      "games_scanned": 3
+    },
+    "C": {
+      "pts_per_game": 12.333,
+      "reb_per_game": 7.0,
+      "ast_per_game": 0.667,
+      "games_scanned": 3
+    },
+    "OTHER": {
+      "pts_per_game": 58.667,
+      "reb_per_game": 22.667,
+      "ast_per_game": 13.0,
+      "games_scanned": 3
+    }
+  },
+  "by_position_per100": {
+    "G": {
+      "pts_per100": 16333333.333,
+      "reb_per100": 2666666.667,
+      "ast_per100": 5333333.333,
+      "poss_agg": 0.0
+    },
+    "F": {
+      "pts_per100": 19333333.333,
+      "reb_per100": 6666666.667,
+      "ast_per100": 3666666.667,
+      "poss_agg": 0.0
+    },
+    "C": {
+      "pts_per100": 12333333.333,
+      "reb_per100": 7000000.0,
+      "ast_per100": 666666.667,
+      "poss_agg": 0.0
+    },
+    "OTHER": {
+      "pts_per100": 58666666.667,
+      "reb_per100": 22666666.667,
+      "ast_per100": 13000000.0,
+      "poss_agg": 0.0
+    }
+  }
+}
