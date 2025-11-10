@@ -11,7 +11,6 @@ Opzioni:
     --debug: stampa info aggiuntive
 """
 
-import os
 import time
 import json
 import argparse
@@ -22,23 +21,7 @@ from nba_api.stats.static import teams
 from nba_api.stats.endpoints import commonteamroster, teamgamelog, boxscoretraditionalv2
 from nba_api.stats.endpoints import leaguegamefinder
 
-CACHE_DIR = "./cache"
-os.makedirs(CACHE_DIR, exist_ok=True)
-
-def load_cache(name):
-    path = os.path.join(CACHE_DIR, name)
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return None
-    return None
-
-def save_cache(name, data):
-    path = os.path.join(CACHE_DIR, name)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+from utils import load_cache, save_cache
 
 # --- build team maps ---
 def build_team_maps():
@@ -225,9 +208,24 @@ def parse_min_to_float(min_val):
         return None
 
 # --- compute defense by position using boxscore for each game (PER-PARTITA) ---
-def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, exclude_dnp=False, debug=False):
-    cache_name = f"def_by_pos_box_pergame_{target_team_abbr}_{season}.json"
-    cached = load_cache(cache_name)
+def compute_defense_by_position_boxscore_per_game(
+    target_team_abbr,
+    season,
+    exclude_dnp=False,
+    debug=False,
+    last_n=None,
+    ttl_hours=None,
+):
+    cache_suffix = []
+    if exclude_dnp:
+        cache_suffix.append("nodnp")
+    if last_n:
+        cache_suffix.append(f"last{last_n}")
+    suffix = ("_" + "_".join(cache_suffix)) if cache_suffix else ""
+
+    cache_name = f"def_by_pos_box_pergame_{target_team_abbr}_{season}{suffix}.json"
+    ttl_seconds = int(ttl_hours * 3600) if ttl_hours else None
+    cached = load_cache(cache_name, max_age_seconds=ttl_seconds)
     if cached and not debug:
         return cached
 
@@ -236,11 +234,21 @@ def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, excl
     # totals across games (sum of per-game sums)
     totals = defaultdict(lambda: {"PTS_sum": 0.0, "REB_sum": 0.0, "AST_sum": 0.0, "games_with_bucket": 0})
     games_scanned = 0
-    game_ids = get_team_game_ids(target_team_abbr, season, debug=debug)
+    all_game_ids = get_team_game_ids(target_team_abbr, season, debug=debug)
+    selected_game_ids = all_game_ids
+    requested_last_n = None
+    if last_n:
+        try:
+            last_n_int = int(last_n)
+            if last_n_int > 0:
+                selected_game_ids = all_game_ids[:last_n_int]
+                requested_last_n = last_n_int
+        except (TypeError, ValueError):
+            pass
     if debug:
-        print(f"Found {len(game_ids)} games for {target_team_abbr} in {season}")
+        print(f"Found {len(selected_game_ids)} games (of {len(all_game_ids)}) for {target_team_abbr} in {season}")
 
-    for gi in game_ids:
+    for gi in selected_game_ids:
         # fetch boxscore (cached)
         box_cache_name = f"box_{gi}.json"
         box_cached = load_cache(box_cache_name) if not debug else None
@@ -389,7 +397,11 @@ def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, excl
         "by_position_per_game": result,
         "meta": {
             "games_scanned": int(games_scanned),
-            "exclude_dnp": bool(exclude_dnp)
+            "exclude_dnp": bool(exclude_dnp),
+            "games_available": len(all_game_ids),
+            "games_requested": len(selected_game_ids),
+            "last_n": requested_last_n,
+            "cache_ttl_hours": ttl_hours,
         }
     }
 
