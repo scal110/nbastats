@@ -5,14 +5,63 @@ import pandas as pd
 import time
 
 
+# Pre-carica l'elenco squadre una sola volta per evitare chiamate ripetute
+_TEAMS = teams.get_teams()
+_TEAM_ID_BY_FULL = {team["full_name"].lower(): team["id"] for team in _TEAMS}
+_TEAM_ID_BY_ABBR = {team.get("abbreviation", "").lower(): team["id"] for team in _TEAMS if team.get("abbreviation")}
+_ROSTER_CACHE = {}
 
 
 # --- Funzioni di utilità ---
 def get_team_id(team_name):
-    team_dict = [t for t in teams.get_teams() if t['full_name'] == team_name]
-    if not team_dict:
-        raise ValueError(f"Squadra {team_name} non trovata.")
-    return team_dict[0]['id']
+    """Restituisce l'ID squadra accettando nome completo, abbreviazione o match parziali."""
+    if not team_name:
+        raise ValueError("Nome squadra mancante")
+
+    normalized = team_name.strip().lower()
+    if not normalized:
+        raise ValueError("Nome squadra mancante")
+
+    if normalized in _TEAM_ID_BY_FULL:
+        return _TEAM_ID_BY_FULL[normalized]
+
+    if normalized in _TEAM_ID_BY_ABBR:
+        return _TEAM_ID_BY_ABBR[normalized]
+
+    # Cerca match parziali sul nome completo
+    matches = [team_id for full_name, team_id in _TEAM_ID_BY_FULL.items() if normalized in full_name]
+    if len(matches) == 1:
+        return matches[0]
+
+    # Permetti di passare direttamente l'ID numerico come stringa
+    try:
+        numeric_id = int(team_name)
+        for team in _TEAMS:
+            if team["id"] == numeric_id:
+                return numeric_id
+    except (TypeError, ValueError):
+        pass
+
+    raise ValueError(f"Squadra '{team_name}' non trovata")
+
+
+def get_team_roster(team_id, season, attempts=3, timeout=60):
+    """Recupera il roster di una squadra con caching in memoria."""
+    cache_key = (team_id, season)
+    if cache_key in _ROSTER_CACHE:
+        return _ROSTER_CACHE[cache_key].copy()
+
+    last_exception = None
+    for attempt in range(attempts):
+        try:
+            roster_df = commonteamroster.CommonTeamRoster(team_id, season=season, timeout=timeout).get_data_frames()[0]
+            _ROSTER_CACHE[cache_key] = roster_df
+            return roster_df.copy()
+        except Exception as exc:
+            last_exception = exc
+            time.sleep(2)
+
+    raise RuntimeError(f"Impossibile recuperare il roster per team_id={team_id} season={season}: {last_exception}")
 
 
 def get_player_game_log_safe(player_id, season, attempts=3, timeout=60):
@@ -29,46 +78,53 @@ def get_player_game_log_safe(player_id, season, attempts=3, timeout=60):
 
 
 def compute_last5_stats(df):
+    df = df.copy()
     df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
     df = df.sort_values('GAME_DATE')
+
     stats = ['PTS', 'REB', 'AST', 'MIN']
     result = {}
 
+    # Prepara colonne numeriche una sola volta
+    df['PTS_num'] = pd.to_numeric(df.get('PTS'), errors='coerce')
+    df['REB_num'] = pd.to_numeric(df.get('REB'), errors='coerce')
+    df['AST_num'] = pd.to_numeric(df.get('AST'), errors='coerce')
+
+    # Converte i minuti "MM:SS" in minuti decimali
+    minutes_timedelta = pd.to_timedelta(df.get('MIN'), errors='coerce')
+    df['MIN_num'] = minutes_timedelta.dt.total_seconds() / 60
+
     for stat in stats:
-        
-        print(df[stat].shift())
-        df[f'{stat}_last5_avg'] = df[stat].shift().rolling(5, min_periods=1).mean()
+        num_col = f'{stat}_num'
+        avg_col = f'{stat}_last5_avg'
+        df[avg_col] = df[num_col].shift().rolling(5, min_periods=1).mean()
 
         if df.empty:
             continue
 
         last_game = df.iloc[-1]
-        avg = last_game[f'{stat}_last5_avg']
-        value = last_game[stat]
+        value_num = last_game.get(num_col)
+        avg_num = last_game.get(avg_col)
 
-        # Converti in numeri e gestisci NaN
-        try:
-            value_num = float(value) if pd.notnull(value) else 0
-            avg_num = float(avg) if pd.notnull(avg) else 0
-        except Exception:
-            value_num, avg_num = 0, 0
+        value_num = float(value_num) if pd.notnull(value_num) else 0.0
+        avg_num = float(avg_num) if pd.notnull(avg_num) else 0.0
 
         result[stat] = {
-            'value': int(value_num),
+            'value': round(value_num, 2),
             'last5_avg': round(avg_num, 2),
             'under_avg': value_num < avg_num
         }
 
     return result
 
-def sottomediapartita(home_team_name="Minnesota Timberwolves", away_team_name="Los Angeles Lakers", season='2025-26'):
-    
+def sottomediapartita(home_team_name="Minnesota Timberwolves", away_team_name="Los Angeles Lakers", season='2025-26', debug=False):
+
     # --- Recupera roster delle squadre ---
     home_team_id = get_team_id(home_team_name)
     away_team_id = get_team_id(away_team_name)
 
-    home_roster = commonteamroster.CommonTeamRoster(home_team_id, season=season).get_data_frames()[0]
-    away_roster = commonteamroster.CommonTeamRoster(away_team_id, season=season).get_data_frames()[0]
+    home_roster = get_team_roster(home_team_id, season)
+    away_roster = get_team_roster(away_team_id, season)
 
     # 🔹 Aggiungiamo un campo 'side' a ciascun roster
     home_roster["side"] = "home"
@@ -93,13 +149,15 @@ def sottomediapartita(home_team_name="Minnesota Timberwolves", away_team_name="L
         player_id = row['PLAYER_ID']
         player_name = row['PLAYER']
 
-        print(f"Elaboro: {player_name} (id={player_id}) ...")
+        if debug:
+            print(f"Elaboro: {player_name} (id={player_id}) ...")
 
         df_player = get_player_game_log_safe(player_id, season)
-        
+
         if df_player is None or df_player.empty:
-            print(f"  ❌ Nessun dato disponibile per {player_name}.")
-            print("-" * 50)
+            if debug:
+                print(f"  ❌ Nessun dato disponibile per {player_name}.")
+                print("-" * 50)
             continue
 
         stats = compute_last5_stats(df_player)
@@ -107,8 +165,9 @@ def sottomediapartita(home_team_name="Minnesota Timberwolves", away_team_name="L
 
         # --- FILTRO: media minuti ultime 5 partite < 20 ---
         if min_avg < 20:
-            print(f"  ⏱️  Escluso: media minuti ultime 5 = {min_avg} (< 20)")
-            print("-" * 50)
+            if debug:
+                print(f"  ⏱️  Escluso: media minuti ultime 5 = {min_avg} (< 20)")
+                print("-" * 50)
             continue
 
         # 🔹 Determiniamo nome squadra e lato
@@ -124,16 +183,17 @@ def sottomediapartita(home_team_name="Minnesota Timberwolves", away_team_name="L
             "stats": stats
         })
 
-        print(f"✅ Giocatore: {player_name}")
-        for stat, values in stats.items():
-            avg = values['last5_avg']
-            status = "⚠ sotto media" if values['under_avg'] else "OK"
-            if stat == "MIN":
-                print(f"  {stat}: {values['value']} min (media 5: {avg}) -> {status}")
-            else:
-                print(f"  {stat}: {values['value']} (media 5: {avg}) -> {status}")
-        print("-" * 50)
-        time.sleep(1)
+        if debug:
+            print(f"✅ Giocatore: {player_name}")
+            for stat, values in stats.items():
+                avg = values['last5_avg']
+                status = "⚠ sotto media" if values['under_avg'] else "OK"
+                if stat == "MIN":
+                    print(f"  {stat}: {values['value']} min (media 5: {avg}) -> {status}")
+                else:
+                    print(f"  {stat}: {values['value']} (media 5: {avg}) -> {status}")
+            print("-" * 50)
 
-    print(f"\nElaborazione completata ✅  Giocatori inclusi: {len(match_stats)}")
+    if debug:
+        print(f"\nElaborazione completata ✅  Giocatori inclusi: {len(match_stats)}")
     return(match_stats)

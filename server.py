@@ -107,27 +107,68 @@ def get_matches_today():
 # Modifica /stats per accettare query params home & away
 @app.route("/stats", methods=["GET"])
 def receive_stats():
-    # leggi parametri query: /stats?home=Team+Name&away=Other+Team
+    # leggi parametri query: /stats?home=Team+Name&away=Other+Team&season=2025-26
     home = request.args.get("home")
     away = request.args.get("away")
-    # se non forniti, puoi usare valori di default nel tuo sottomediapartita attuale
+    season = request.args.get("season", "2025-26")
+
+    # se uno solo dei parametri è presente ritorna 400 con messaggio chiaro
+    if (home and not away) or (away and not home):
+        return jsonify({
+            "error": "Specificare sia la squadra di casa (home) che quella ospite (away)."
+        }), 400
+
     try:
         if home and away:
-            data = sottomediapartita.sottomediapartita(home_team_name=home, away_team_name=away)
+            data = sottomediapartita.sottomediapartita(
+                home_team_name=home,
+                away_team_name=away,
+                season=season,
+                debug=False
+            )
         else:
-            # fallback al comportamento precedente (se il tuo sottomediapartita non prende argomenti)
-            data = sottomediapartita.sottomediapartita()
-    except TypeError:
-        # se sottomediapartita non accetta argomenti, puoi impostare variabili globali prima della chiamata:
-        # (oppure aggiornare sottomediapartita come suggerito più sotto)
-        data = sottomediapartita.sottomediapartita()
+            data = sottomediapartita.sottomediapartita(season=season, debug=False)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 502
+    except Exception as exc:
+        print(f"Errore imprevisto in /stats: {exc}")
+        return jsonify({"error": "Errore interno"}), 500
+
     return jsonify(data)
 
 @app.route("/team-defense")
 def team_defense():
     team = request.args.get("team")  # es: LAL
     season = request.args.get("season", "2025-26")
-    out = teamdefensestatsperrole.compute_defense_by_position_boxscore_per_game(team, season, exclude_dnp=True, debug=False)
+    last_n = request.args.get("last_n", type=int)
+    ttl_hours = request.args.get("ttl_hours", type=float)
+    exclude_dnp_param = request.args.get("exclude_dnp")
+    exclude_dnp = True
+    if exclude_dnp_param is not None:
+        exclude_dnp = exclude_dnp_param.lower() not in ("0", "false", "no")
+
+    if not team:
+        return jsonify({"error": "Parametro 'team' obbligatorio"}), 400
+
+    try:
+        out = teamdefensestatsperrole.compute_defense_by_position_boxscore_per_game(
+            team,
+            season,
+            exclude_dnp=exclude_dnp,
+            debug=False,
+            last_n=last_n,
+            ttl_hours=ttl_hours,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 502
+    except Exception as exc:
+        print(f"Errore imprevisto in /team-defense: {exc}")
+        return jsonify({"error": "Errore interno"}), 500
+
     return jsonify(out)
 
 if __name__ == "__main__":
