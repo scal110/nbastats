@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * SmartStatistics (frontend-only logic + team modal)
@@ -13,6 +13,7 @@ export default function SmartStatistics({
   season = "2025-26",
   apiBase = "http://localhost:5000",
   lastN = 10,
+  apiPath,
 }) {
   const [rows, setRows] = useState([]);
   const [homeDef, setHomeDef] = useState(null); // concessioni del team di CASA
@@ -27,6 +28,7 @@ export default function SmartStatistics({
   const [modalData, setModalData] = useState(null);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalErr, setModalErr] = useState(null);
+  const modalFetchController = useRef(null);
 
   // ordinamenti/filtri
   const [sortBy, setSortBy] = useState("bounce"); // bounce|player|pts|reb|ast
@@ -74,47 +76,84 @@ export default function SmartStatistics({
 
   const bounce = (underPct, ratio) => Math.max(0, -underPct) * Math.max(0, ratio - 1);
 
+  const clamp01 = useCallback((value) => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)), []);
+
+  const normalizedApiBase = useMemo(() => {
+    if (!apiBase) return "";
+    return apiBase.replace(/\/+$/, "");
+  }, [apiBase]);
+
+  const fetchJsonWithFallbacks = useCallback(async (candidates, init, label, signal) => {
+    const seen = new Set();
+    let lastErr = null;
+    for (const raw of candidates) {
+      if (!raw) continue;
+      const url = raw.startsWith("http") || raw.startsWith("/") ? raw : `/${raw}`;
+      if (seen.has(url)) continue;
+      seen.add(url);
+      try {
+        const res = await fetch(url, { ...init, signal });
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          lastErr = new Error(`${label} HTTP ${res.status}${detail ? ` – ${detail}` : ""}`);
+          continue;
+        }
+        try {
+          return await res.json();
+        } catch (jsonErr) {
+          lastErr = new Error(`${label} JSON error: ${jsonErr.message}`);
+        }
+      } catch (err) {
+        if (err.name === "AbortError") throw err;
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error(`${label} nessuna risposta valida`);
+  }, []);
+
+  const defenseCandidatesFor = useCallback((abbr) => {
+    if (!abbr) return [];
+    const path = `team-defense?team=${encodeURIComponent(abbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
+    const urls = [`/api/${path}`];
+    if (normalizedApiBase) urls.push(`${normalizedApiBase}/${path}`);
+    return urls;
+  }, [normalizedApiBase, season, lastN]);
+
   // ---- fetch dati principali ----
   useEffect(() => {
-    let abort = false;
+    const controller = new AbortController();
+    let active = true;
     async function run() {
-      setLoading(true); setErr(null);
+      setLoading(true);
+      setErr(null);
       try {
+        const statsQuery = `stats?home=${encodeURIComponent(home || "")}&away=${encodeURIComponent(away || "")}&season=${encodeURIComponent(season)}`;
+        const statsCandidates = [];
+        if (apiPath) statsCandidates.push(apiPath);
+        statsCandidates.push(`/api/${statsQuery}`);
+        if (normalizedApiBase) statsCandidates.push(`${normalizedApiBase}/${statsQuery}`);
 
-         // 2) difese team (concessioni per ruolo)
+        // 2) difese team (concessioni per ruolo)
         const homeAbbr = TEAM_NAME_TO_ABBR[home] || null;
         const awayAbbr = TEAM_NAME_TO_ABBR[away] || null;
 
         let defHomeTeam = null, defAwayTeam = null;
-        if (homeAbbr) {
-          const u = `/api/team-defense?team=${encodeURIComponent(homeAbbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
-          const d = await fetch(u, { cache: "no-store" });
-          if (!d.ok) throw new Error(`team-defense(home) HTTP ${d.status}`);
-          defHomeTeam = await d.json();
-        }
-        if (abort) return;
+        const [homeRes, awayRes] = await Promise.all([
+          homeAbbr ? fetchJsonWithFallbacks(defenseCandidatesFor(homeAbbr), { cache: "no-store" }, `team-defense ${homeAbbr}`, controller.signal) : Promise.resolve(null),
+          awayAbbr ? fetchJsonWithFallbacks(defenseCandidatesFor(awayAbbr), { cache: "no-store" }, `team-defense ${awayAbbr}`, controller.signal) : Promise.resolve(null),
+        ]);
 
-        if (awayAbbr) {
-          const u2 = `/api/team-defense?team=${encodeURIComponent(awayAbbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
-          const d2 = await fetch(u2, { cache: "no-store" });
-          if (!d2.ok) throw new Error(`team-defense(away) HTTP ${d2.status}`);
-          defAwayTeam = await d2.json();
-        }
-        if (abort) return;
+        if (!active) return;
+
+        defHomeTeam = homeRes;
+        defAwayTeam = awayRes;
 
         setHomeDef(defHomeTeam);
         setAwayDef(defAwayTeam);
 
         // 1) giocatori
-        let urlStats = `/api/stats?home=${encodeURIComponent(home||"")}&away=${encodeURIComponent(away||"")}&season=${encodeURIComponent(season)}`;
-        let res = await fetch(urlStats, { cache: "no-store" });
-        if (!res.ok) {
-          // fallback in caso il backend ignori i parametri
-          res = await fetch(`${apiBase}/stats`, { cache: "no-store" });
-        }
-        if (!res.ok) throw new Error(`stats HTTP ${res.status}`);
-        const players = await res.json();
-        if (abort) return;
+        const players = await fetchJsonWithFallbacks(statsCandidates, { cache: "no-store" }, "stats", controller.signal);
+        if (!active) return;
 
        
 
@@ -152,17 +191,21 @@ export default function SmartStatistics({
           };
         });
 
-        if (!abort) setRows(enriched);
+        if (active) setRows(enriched);
       } catch (e) {
-        if (!abort) setErr(e.message || String(e));
+        if (e.name === "AbortError") return;
+        if (active) setErr(e.message || String(e));
       } finally {
-        if (!abort) setLoading(false);
+        if (active) setLoading(false);
       }
     }
     run();
-    return () => { abort = true; };
+    return () => {
+      active = false;
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBase, home, away, season, lastN]);
+  }, [home, away, season, lastN, apiPath, normalizedApiBase, fetchJsonWithFallbacks, defenseCandidatesFor]);
 
   // ---- UI helpers ----
   const roles = useMemo(() => {
@@ -171,21 +214,47 @@ export default function SmartStatistics({
     return ["All", ...Array.from(s).sort()];
   }, [rows]);
 
-  const bounceAvg = (r) => {
-    const b = r?.bounce_score || {};
-    return (Number(b.PTS||0)+Number(b.REB||0)+Number(b.AST||0))/3;
-  };
-  const sortKey = (r) => {
-    if (sortBy === "bounce") return bounceAvg(r);
+  const rowsWithWeights = useMemo(() =>
+    rows.map(row => ({
+      ...row,
+      weighted_bounce: weightedBounceScore(row),
+    })),
+  [rows, weightedBounceScore]);
+
+  const weightedBounceScore = useCallback((r) => {
+    const bounceScores = r?.bounce_score || {};
+    const minutes = Number(r?.stats?.MIN?.last5_avg ?? 0);
+    const minuteWeight = clamp01(minutes / 32);
+    const labels = ["PTS", "REB", "AST"];
+
+    let totalWeight = 0;
+    let weightedSum = 0;
+
+    labels.forEach((label) => {
+      const bounceVal = Number(bounceScores?.[label] ?? 0);
+      const recentAvg = Number(r?.stats?.[label]?.last5_avg ?? 0);
+      const threshold = label === "PTS" ? 18 : label === "REB" ? 8 : 7;
+      const productionWeight = clamp01(recentAvg / threshold);
+      const componentWeight = 0.35 + 0.65 * ((minuteWeight + productionWeight) / 2);
+      totalWeight += componentWeight;
+      weightedSum += bounceVal * componentWeight;
+    });
+
+    const reliabilityBoost = 0.4 + 0.6 * minuteWeight;
+    const base = totalWeight > 0 ? weightedSum / totalWeight : 0;
+    return base * reliabilityBoost;
+  }, [clamp01]);
+  const sortKey = useCallback((r) => {
+    if (sortBy === "bounce") return r?.weighted_bounce ?? weightedBounceScore(r);
     if (sortBy === "pts") return r?.stats?.PTS?.last5_avg ?? -Infinity;
     if (sortBy === "reb") return r?.stats?.REB?.last5_avg ?? -Infinity;
     if (sortBy === "ast") return r?.stats?.AST?.last5_avg ?? -Infinity;
     return (r.player||"").toLowerCase();
-  };
+  }, [sortBy, weightedBounceScore]);
 
   const filtered = useMemo(() => {
     const qq = (q||"").toLowerCase();
-    let lst = rows.filter(r => {
+    let lst = rowsWithWeights.filter(r => {
       const name = (r.player||"").toLowerCase();
       const pos = (r.position||"").toLowerCase();
       const okQ = !qq || name.includes(qq);
@@ -199,7 +268,7 @@ export default function SmartStatistics({
       return sortDir==="asc" ? na-nb : nb-na;
     });
     return lst;
-  }, [rows, q, roleFilter, sortBy, sortDir]);
+  }, [rowsWithWeights, q, roleFilter, sortDir, sortKey]);
 
   const homeList = useMemo(()=>filtered.filter(r=>r.side!=="away"), [filtered]);
   const awayList = useMemo(()=>filtered.filter(r=>r.side==="away"), [filtered]);
@@ -279,7 +348,7 @@ export default function SmartStatistics({
   };
 
   const Row = ({r}) => {
-    const weighted = weightedBounceScore(r);
+    const weighted = r?.weighted_bounce ?? weightedBounceScore(r);
     const totalTone = weighted>=0.55 ? "green" : weighted>=0.25 ? "amber" : "gray";
     const totalIntensity = Math.min(1, weighted / 1.2);
     return (
@@ -343,21 +412,25 @@ export default function SmartStatistics({
   // shortlist in alto
   const summaryTop = useMemo(() => {
     const best = (key) => {
-      const sorted = [...rows];
+      const sorted = [...rowsWithWeights];
       sorted.sort((a, b) => {
         const bounceDiff = Number(b?.bounce_score?.[key] ?? 0) - Number(a?.bounce_score?.[key] ?? 0);
         if (Math.abs(bounceDiff) > 1e-4) return bounceDiff;
-        return weightedBounceScore(b) - weightedBounceScore(a);
+        const wb = Number(b?.weighted_bounce ?? weightedBounceScore(b));
+        const wa = Number(a?.weighted_bounce ?? weightedBounceScore(a));
+        return wb - wa;
       });
       return sorted.slice(0, 4);
     };
     return { PTS: best("PTS"), REB: best("REB"), AST: best("AST") };
-  }, [rows, weightedBounceScore]);
+  }, [rowsWithWeights, weightedBounceScore]);
 
   // ----- Modal helpers -----
   const openTeamModal = async (teamName) => {
     if (!teamName) return;
     const abbr = TEAM_NAME_TO_ABBR[teamName] || null;
+    modalFetchController.current?.abort();
+    modalFetchController.current = null;
     setModalTeamName(teamName);
     setModalTeamAbbr(abbr);
     setModalOpen(true);
@@ -375,21 +448,34 @@ export default function SmartStatistics({
 
     // altrimenti fetch al volo
     if (abbr) {
+      const ctrl = new AbortController();
       try {
+        modalFetchController.current = ctrl;
         setModalLoading(true);
-        const u = `${apiBase}/team-defense?team=${encodeURIComponent(abbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
-        const r = await fetch(u, { cache: "no-store" });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const json = await r.json();
+        const json = await fetchJsonWithFallbacks(
+          defenseCandidatesFor(abbr),
+          { cache: "no-store" },
+          `team-defense ${abbr}`,
+          ctrl.signal
+        );
+        if (ctrl.signal.aborted) return;
         setModalData(json);
       } catch (e) {
+        if (e.name === "AbortError") return;
         setModalErr(e.message || String(e));
       } finally {
-        setModalLoading(false);
+        if (modalFetchController.current === ctrl) {
+          modalFetchController.current = null;
+          if (!ctrl.signal.aborted) {
+            setModalLoading(false);
+          }
+        }
       }
     }
   };
   const closeModal = () => {
+    modalFetchController.current?.abort();
+    modalFetchController.current = null;
     setModalOpen(false);
     setModalTeamName(null);
     setModalTeamAbbr(null);
@@ -436,7 +522,7 @@ export default function SmartStatistics({
             {(summaryTop[k]||[]).map(p=>{
               const bounceVal = Number(p?.bounce_score?.[k] ?? 0);
               const tone = bounceVal>=0.6 ? "green" : bounceVal>=0.25 ? "amber" : "gray";
-              const weighted = weightedBounceScore(p);
+              const weighted = p?.weighted_bounce ?? weightedBounceScore(p);
               return (
                 <div key={`${p.player}-${k}`} className="text-sm flex flex-col gap-1 py-2 border-b last:border-0">
                   <div className="flex items-center justify-between gap-2">
