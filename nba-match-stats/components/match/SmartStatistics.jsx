@@ -76,8 +76,6 @@ export default function SmartStatistics({
 
   const bounce = (underPct, ratio) => Math.max(0, -underPct) * Math.max(0, ratio - 1);
 
-  const clamp01 = useCallback((value) => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)), []);
-
   const normalizedApiBase = useMemo(() => {
     if (!apiBase) return "";
     return apiBase.replace(/\/+$/, "");
@@ -214,36 +212,17 @@ export default function SmartStatistics({
     return ["All", ...Array.from(s).sort()];
   }, [rows]);
 
-  const weightedBounceScore = useCallback((r) => {
-    const bounceScores = r?.bounce_score || {};
-    const minutes = Number(r?.stats?.MIN?.last5_avg ?? 0);
-    const minuteWeight = clamp01(minutes / 32);
-    const labels = ["PTS", "REB", "AST"];
-
-    let totalWeight = 0;
-    let weightedSum = 0;
-
-    labels.forEach((label) => {
-      const bounceVal = Number(bounceScores?.[label] ?? 0);
-      const recentAvg = Number(r?.stats?.[label]?.last5_avg ?? 0);
-      const threshold = label === "PTS" ? 18 : label === "REB" ? 8 : 7;
-      const productionWeight = clamp01(recentAvg / threshold);
-      const componentWeight = 0.35 + 0.65 * ((minuteWeight + productionWeight) / 2);
-      totalWeight += componentWeight;
-      weightedSum += bounceVal * componentWeight;
-    });
-
-    const reliabilityBoost = 0.4 + 0.6 * minuteWeight;
-    const base = totalWeight > 0 ? weightedSum / totalWeight : 0;
-    return base * reliabilityBoost;
-  }, [clamp01]);
+  const bounceAvg = useCallback((r) => {
+    const b = r?.bounce_score || {};
+    return (Number(b.PTS||0)+Number(b.REB||0)+Number(b.AST||0))/3;
+  }, []);
   const sortKey = useCallback((r) => {
-    if (sortBy === "bounce") return weightedBounceScore(r);
+    if (sortBy === "bounce") return bounceAvg(r);
     if (sortBy === "pts") return r?.stats?.PTS?.last5_avg ?? -Infinity;
     if (sortBy === "reb") return r?.stats?.REB?.last5_avg ?? -Infinity;
     if (sortBy === "ast") return r?.stats?.AST?.last5_avg ?? -Infinity;
     return (r.player||"").toLowerCase();
-  }, [sortBy, weightedBounceScore]);
+  }, [sortBy, bounceAvg]);
 
   const filtered = useMemo(() => {
     const qq = (q||"").toLowerCase();
