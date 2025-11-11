@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * SmartStatistics (frontend-only logic + team modal)
@@ -13,6 +13,7 @@ export default function SmartStatistics({
   season = "2025-26",
   apiBase = "http://localhost:5000",
   lastN = 10,
+  apiPath,
 }) {
   const [rows, setRows] = useState([]);
   const [homeDef, setHomeDef] = useState(null); // concessioni del team di CASA
@@ -27,6 +28,7 @@ export default function SmartStatistics({
   const [modalData, setModalData] = useState(null);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalErr, setModalErr] = useState(null);
+  const modalFetchController = useRef(null);
 
   // ordinamenti/filtri
   const [sortBy, setSortBy] = useState("bounce"); // bounce|player|pts|reb|ast
@@ -74,47 +76,82 @@ export default function SmartStatistics({
 
   const bounce = (underPct, ratio) => Math.max(0, -underPct) * Math.max(0, ratio - 1);
 
+  const normalizedApiBase = useMemo(() => {
+    if (!apiBase) return "";
+    return apiBase.replace(/\/+$/, "");
+  }, [apiBase]);
+
+  const fetchJsonWithFallbacks = useCallback(async (candidates, init, label, signal) => {
+    const seen = new Set();
+    let lastErr = null;
+    for (const raw of candidates) {
+      if (!raw) continue;
+      const url = raw.startsWith("http") || raw.startsWith("/") ? raw : `/${raw}`;
+      if (seen.has(url)) continue;
+      seen.add(url);
+      try {
+        const res = await fetch(url, { ...init, signal });
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          lastErr = new Error(`${label} HTTP ${res.status}${detail ? ` – ${detail}` : ""}`);
+          continue;
+        }
+        try {
+          return await res.json();
+        } catch (jsonErr) {
+          lastErr = new Error(`${label} JSON error: ${jsonErr.message}`);
+        }
+      } catch (err) {
+        if (err.name === "AbortError") throw err;
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error(`${label} nessuna risposta valida`);
+  }, []);
+
+  const defenseCandidatesFor = useCallback((abbr) => {
+    if (!abbr) return [];
+    const path = `team-defense?team=${encodeURIComponent(abbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
+    const urls = [`/api/${path}`];
+    if (normalizedApiBase) urls.push(`${normalizedApiBase}/${path}`);
+    return urls;
+  }, [normalizedApiBase, season, lastN]);
+
   // ---- fetch dati principali ----
   useEffect(() => {
-    let abort = false;
+    const controller = new AbortController();
+    let active = true;
     async function run() {
-      setLoading(true); setErr(null);
+      setLoading(true);
+      setErr(null);
       try {
+        const statsQuery = `stats?home=${encodeURIComponent(home || "")}&away=${encodeURIComponent(away || "")}&season=${encodeURIComponent(season)}`;
+        const statsCandidates = [];
+        if (apiPath) statsCandidates.push(apiPath);
+        statsCandidates.push(`/api/${statsQuery}`);
+        if (normalizedApiBase) statsCandidates.push(`${normalizedApiBase}/${statsQuery}`);
 
-         // 2) difese team (concessioni per ruolo)
+        // 2) difese team (concessioni per ruolo)
         const homeAbbr = TEAM_NAME_TO_ABBR[home] || null;
         const awayAbbr = TEAM_NAME_TO_ABBR[away] || null;
 
         let defHomeTeam = null, defAwayTeam = null;
-        if (homeAbbr) {
-          const u = `/api/team-defense?team=${encodeURIComponent(homeAbbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
-          const d = await fetch(u, { cache: "no-store" });
-          if (!d.ok) throw new Error(`team-defense(home) HTTP ${d.status}`);
-          defHomeTeam = await d.json();
-        }
-        if (abort) return;
+        const [homeRes, awayRes] = await Promise.all([
+          homeAbbr ? fetchJsonWithFallbacks(defenseCandidatesFor(homeAbbr), { cache: "no-store" }, `team-defense ${homeAbbr}`, controller.signal) : Promise.resolve(null),
+          awayAbbr ? fetchJsonWithFallbacks(defenseCandidatesFor(awayAbbr), { cache: "no-store" }, `team-defense ${awayAbbr}`, controller.signal) : Promise.resolve(null),
+        ]);
 
-        if (awayAbbr) {
-          const u2 = `/api/team-defense?team=${encodeURIComponent(awayAbbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
-          const d2 = await fetch(u2, { cache: "no-store" });
-          if (!d2.ok) throw new Error(`team-defense(away) HTTP ${d2.status}`);
-          defAwayTeam = await d2.json();
-        }
-        if (abort) return;
+        if (!active) return;
+
+        defHomeTeam = homeRes;
+        defAwayTeam = awayRes;
 
         setHomeDef(defHomeTeam);
         setAwayDef(defAwayTeam);
 
         // 1) giocatori
-        let urlStats = `/api/stats?home=${encodeURIComponent(home||"")}&away=${encodeURIComponent(away||"")}&season=${encodeURIComponent(season)}`;
-        let res = await fetch(urlStats, { cache: "no-store" });
-        if (!res.ok) {
-          // fallback in caso il backend ignori i parametri
-          res = await fetch(`${apiBase}/stats`, { cache: "no-store" });
-        }
-        if (!res.ok) throw new Error(`stats HTTP ${res.status}`);
-        const players = await res.json();
-        if (abort) return;
+        const players = await fetchJsonWithFallbacks(statsCandidates, { cache: "no-store" }, "stats", controller.signal);
+        if (!active) return;
 
        
 
@@ -152,17 +189,21 @@ export default function SmartStatistics({
           };
         });
 
-        if (!abort) setRows(enriched);
+        if (active) setRows(enriched);
       } catch (e) {
-        if (!abort) setErr(e.message || String(e));
+        if (e.name === "AbortError") return;
+        if (active) setErr(e.message || String(e));
       } finally {
-        if (!abort) setLoading(false);
+        if (active) setLoading(false);
       }
     }
     run();
-    return () => { abort = true; };
+    return () => {
+      active = false;
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBase, home, away, season, lastN]);
+  }, [home, away, season, lastN, apiPath, normalizedApiBase, fetchJsonWithFallbacks, defenseCandidatesFor]);
 
   // ---- UI helpers ----
   const roles = useMemo(() => {
@@ -171,17 +212,17 @@ export default function SmartStatistics({
     return ["All", ...Array.from(s).sort()];
   }, [rows]);
 
-  const bounceAvg = (r) => {
+  const bounceAvg = useCallback((r) => {
     const b = r?.bounce_score || {};
     return (Number(b.PTS||0)+Number(b.REB||0)+Number(b.AST||0))/3;
-  };
-  const sortKey = (r) => {
+  }, []);
+  const sortKey = useCallback((r) => {
     if (sortBy === "bounce") return bounceAvg(r);
     if (sortBy === "pts") return r?.stats?.PTS?.last5_avg ?? -Infinity;
     if (sortBy === "reb") return r?.stats?.REB?.last5_avg ?? -Infinity;
     if (sortBy === "ast") return r?.stats?.AST?.last5_avg ?? -Infinity;
     return (r.player||"").toLowerCase();
-  };
+  }, [sortBy, bounceAvg]);
 
   const filtered = useMemo(() => {
     const qq = (q||"").toLowerCase();
@@ -199,7 +240,7 @@ export default function SmartStatistics({
       return sortDir==="asc" ? na-nb : nb-na;
     });
     return lst;
-  }, [rows, q, roleFilter, sortBy, sortDir]);
+  }, [rows, q, roleFilter, sortDir, sortKey]);
 
   const homeList = useMemo(()=>filtered.filter(r=>r.side!=="away"), [filtered]);
   const awayList = useMemo(()=>filtered.filter(r=>r.side==="away"), [filtered]);
@@ -304,6 +345,8 @@ export default function SmartStatistics({
   const openTeamModal = async (teamName) => {
     if (!teamName) return;
     const abbr = TEAM_NAME_TO_ABBR[teamName] || null;
+    modalFetchController.current?.abort();
+    modalFetchController.current = null;
     setModalTeamName(teamName);
     setModalTeamAbbr(abbr);
     setModalOpen(true);
@@ -321,21 +364,34 @@ export default function SmartStatistics({
 
     // altrimenti fetch al volo
     if (abbr) {
+      const ctrl = new AbortController();
       try {
+        modalFetchController.current = ctrl;
         setModalLoading(true);
-        const u = `${apiBase}/team-defense?team=${encodeURIComponent(abbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
-        const r = await fetch(u, { cache: "no-store" });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const json = await r.json();
+        const json = await fetchJsonWithFallbacks(
+          defenseCandidatesFor(abbr),
+          { cache: "no-store" },
+          `team-defense ${abbr}`,
+          ctrl.signal
+        );
+        if (ctrl.signal.aborted) return;
         setModalData(json);
       } catch (e) {
+        if (e.name === "AbortError") return;
         setModalErr(e.message || String(e));
       } finally {
-        setModalLoading(false);
+        if (modalFetchController.current === ctrl) {
+          modalFetchController.current = null;
+          if (!ctrl.signal.aborted) {
+            setModalLoading(false);
+          }
+        }
       }
     }
   };
   const closeModal = () => {
+    modalFetchController.current?.abort();
+    modalFetchController.current = null;
     setModalOpen(false);
     setModalTeamName(null);
     setModalTeamAbbr(null);

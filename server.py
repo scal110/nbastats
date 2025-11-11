@@ -5,6 +5,7 @@ from nba_api.stats.static import teams
 from datetime import datetime
 import pytz
 import time
+import threading
 from dateutil import parser
 import sottomediapartita
 import teamdefensestatsperrole
@@ -13,6 +14,31 @@ app = Flask(__name__)
 CORS(app)
 
 teams_dict = {t['id']: t['full_name'] for t in teams.get_teams()}
+
+_cache_build_lock = threading.Lock()
+_cache_building = set()
+
+
+def _schedule_all_cache_build(season, exclude_dnp):
+    if teamdefensestatsperrole.is_all_team_cache_ready(season, exclude_dnp=exclude_dnp):
+        return
+
+    key = (season, bool(exclude_dnp))
+    with _cache_build_lock:
+        if teamdefensestatsperrole.is_all_team_cache_ready(season, exclude_dnp=exclude_dnp):
+            return
+        if key in _cache_building:
+            return
+        _cache_building.add(key)
+
+    def _runner():
+        try:
+            teamdefensestatsperrole.warm_all_team_caches(season, exclude_dnp=exclude_dnp, debug=False)
+        finally:
+            with _cache_build_lock:
+                _cache_building.discard(key)
+
+    threading.Thread(target=_runner, daemon=True).start()
 
 # --- Usare la data "odierna" in US/Eastern (NBA uses Eastern time) ---
 def today_nba_format():
@@ -127,7 +153,23 @@ def receive_stats():
 def team_defense():
     team = request.args.get("team")  # es: LAL
     season = request.args.get("season", "2025-26")
-    out = teamdefensestatsperrole.compute_defense_by_position_boxscore_per_game(team, season, exclude_dnp=True, debug=False)
+    exclude_param = request.args.get("exclude_dnp", "true")
+    exclude_dnp = str(exclude_param).lower() in ("1", "true", "yes", "on")
+
+    if not team:
+        return jsonify({"error": "Parametro 'team' mancante"}), 400
+
+    try:
+        out = teamdefensestatsperrole.get_team_defense_from_cache(
+            team,
+            season,
+            exclude_dnp=exclude_dnp,
+            debug=False
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    _schedule_all_cache_build(season, exclude_dnp)
     return jsonify(out)
 
 if __name__ == "__main__":
