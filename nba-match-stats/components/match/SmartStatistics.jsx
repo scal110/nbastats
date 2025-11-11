@@ -214,12 +214,7 @@ export default function SmartStatistics({
     return ["All", ...Array.from(s).sort()];
   }, [rows]);
 
-  const rowsWithWeights = useMemo(() =>
-    rows.map(row => ({
-      ...row,
-      weighted_bounce: weightedBounceScore(row),
-    })),
-  [rows, weightedBounceScore]);
+ 
 
   const weightedBounceScore = useCallback((r) => {
     const bounceScores = r?.bounce_score || {};
@@ -244,6 +239,14 @@ export default function SmartStatistics({
     const base = totalWeight > 0 ? weightedSum / totalWeight : 0;
     return base * reliabilityBoost;
   }, [clamp01]);
+
+   const rowsWithWeights = useMemo(() =>
+    rows.map(row => ({
+      ...row,
+      weighted_bounce: weightedBounceScore(row),
+    })),
+  [rows, weightedBounceScore]);
+
   const sortKey = useCallback((r) => {
     if (sortBy === "bounce") return r?.weighted_bounce ?? weightedBounceScore(r);
     if (sortBy === "pts") return r?.stats?.PTS?.last5_avg ?? -Infinity;
