@@ -1,21 +1,26 @@
-// SmartStatistics.jsx
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+/**
+ * SmartStatistics (frontend-only logic + team modal)
+ * - GET {apiBase}/stats?home=&away=&season=
+ * - GET {apiBase}/team-defense?team=<ABBR>&season=&last_n=
+ * Calcoli in frontend: under_pct, ratio, bounce per PTS/REB/AST
+ */
 export default function SmartStatistics({
   home,
   away,
   season = "2025-26",
-  apiBase = "/api",
+  apiBase = "http://localhost:5000",
   lastN = 10,
 }) {
   const [rows, setRows] = useState([]);
-  const [homeDef, setHomeDef] = useState(null);
-  const [awayDef, setAwayDef] = useState(null);
+  const [homeDef, setHomeDef] = useState(null); // concessioni del team di CASA
+  const [awayDef, setAwayDef] = useState(null); // concessioni del team di TRASFERTA
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
 
-  // Modal
+  // Modal stato
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTeamName, setModalTeamName] = useState(null);
   const [modalTeamAbbr, setModalTeamAbbr] = useState(null);
@@ -23,23 +28,25 @@ export default function SmartStatistics({
   const [modalLoading, setModalLoading] = useState(false);
   const [modalErr, setModalErr] = useState(null);
 
-  // sort/filtri
-  const [sortBy, setSortBy] = useState("bounce");
+  // ordinamenti/filtri
+  const [sortBy, setSortBy] = useState("bounce"); // bounce|player|pts|reb|ast
   const [sortDir, setSortDir] = useState("desc");
   const [q, setQ] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
 
+  // mappa nomi completi -> abbreviazioni
   const TEAM_NAME_TO_ABBR = {
-    "Atlanta Hawks":"ATL","Boston Celtics":"BOS","Brooklyn Nets":"BKN","Charlotte Hornets":"CHA",
-    "Chicago Bulls":"CHI","Cleveland Cavaliers":"CLE","Dallas Mavericks":"DAL","Denver Nuggets":"DEN",
-    "Detroit Pistons":"DET","Golden State Warriors":"GSW","Houston Rockets":"HOU","Indiana Pacers":"IND",
-    "Los Angeles Clippers":"LAC","Los Angeles Lakers":"LAL","Memphis Grizzlies":"MEM","Miami Heat":"MIA",
-    "Milwaukee Bucks":"MIL","Minnesota Timberwolves":"MIN","New Orleans Pelicans":"NOP","New York Knicks":"NYK",
-    "Oklahoma City Thunder":"OKC","Orlando Magic":"ORL","Philadelphia 76ers":"PHI","Phoenix Suns":"PHX",
-    "Portland Trail Blazers":"POR","Sacramento Kings":"SAC","San Antonio Spurs":"SAS","Toronto Raptors":"TOR",
-    "Utah Jazz":"UTA","Washington Wizards":"WAS"
+    "Atlanta Hawks": "ATL","Boston Celtics": "BOS","Brooklyn Nets": "BKN","Charlotte Hornets": "CHA",
+    "Chicago Bulls": "CHI","Cleveland Cavaliers": "CLE","Dallas Mavericks": "DAL","Denver Nuggets": "DEN",
+    "Detroit Pistons": "DET","Golden State Warriors": "GSW","Houston Rockets": "HOU","Indiana Pacers": "IND",
+    "LA Clippers": "LAC","Los Angeles Lakers": "LAL","Memphis Grizzlies": "MEM","Miami Heat": "MIA",
+    "Milwaukee Bucks": "MIL","Minnesota Timberwolves": "MIN","New Orleans Pelicans": "NOP","New York Knicks": "NYK",
+    "Oklahoma City Thunder": "OKC","Orlando Magic": "ORL","Philadelphia 76ers": "PHI","Phoenix Suns": "PHX",
+    "Portland Trail Blazers": "POR","Sacramento Kings": "SAC","San Antonio Spurs": "SAS","Toronto Raptors": "TOR",
+    "Utah Jazz": "UTA","Washington Wizards": "WAS",
   };
 
+  // ---- helpers ----
   const toBucket = (pos) => {
     const s = (pos || "").toUpperCase().split("-")[0];
     if (["PG","SG","G"].includes(s)) return "G";
@@ -48,87 +55,75 @@ export default function SmartStatistics({
     return "OTHER";
   };
   const safeDiv = (a, b) => a / (Math.abs(b) > 1e-6 ? b : 1e-6);
+
   const statUnderPct = (player, key) => {
     const last = Number(player?.stats?.[key]?.value ?? 0);
     const avg5 = Number(player?.stats?.[key]?.last5_avg ?? 0);
-    return safeDiv(last - avg5, avg5);
+    return safeDiv(last - avg5, avg5); // negativo se sotto
   };
+
   const statRatio = (defObj, bucket, key) => {
+    // key: "pts_per_game" | "reb_per_game" | "ast_per_game"
     if (!defObj || !defObj.by_position_per_game) return 1.0;
     const bypos = defObj.by_position_per_game;
     const val = Number(bypos?.[bucket]?.[key] ?? 0);
     const vals = ["G","F","C","OTHER"].map(b => Number(bypos?.[b]?.[key] ?? 0)).filter(v => Number.isFinite(v));
     const meanAll = vals.length ? (vals.reduce((s,x)=>s+x,0) / vals.length) : 1.0;
-    return safeDiv(val, meanAll);
+    return safeDiv(val, meanAll); // >1 = matchup più morbido di media
   };
+
   const bounce = (underPct, ratio) => Math.max(0, -underPct) * Math.max(0, ratio - 1);
 
-  const fetchKey = useMemo(
-    () => JSON.stringify({ apiBase, home, away, season, lastN }),
-    [apiBase, home, away, season, lastN]
-  );
-
-  // Evita run concorrenti e consenti retry dopo errore
-  const lastSuccessfulKeyRef = useRef(null);
-  const isFetchingRef = useRef(false);
-
-  const fetchJSON = async (url, { attempts = 3, signal } = {}) => {
-    let wait = 800;
-    for (let i = 0; i < attempts; i++) {
-      try {
-        const r = await fetch(url, { cache: "no-store", signal });
-        if (!r.ok) throw new Error(`${url} HTTP ${r.status}`);
-        return await r.json();
-      } catch (e) {
-        if (signal?.aborted) throw e;
-        if (i === attempts - 1) throw e;
-        await new Promise(res => setTimeout(res, wait));
-        wait *= 1.7;
-      }
-    }
-  };
-
+  // ---- fetch dati principali ----
   useEffect(() => {
-    if (isFetchingRef.current) return;
-    if (lastSuccessfulKeyRef.current === fetchKey) return;
-
-    isFetchingRef.current = true;
-    const abortStats = new AbortController();
-    const abortHome = new AbortController();
-    const abortAway = new AbortController();
-
-    (async () => {
+    let abort = false;
+    async function run() {
       setLoading(true); setErr(null);
       try {
-        const urlStats = `${apiBase}/stats?home=${encodeURIComponent(home||"")}&away=${encodeURIComponent(away||"")}&season=${encodeURIComponent(season)}`;
+
+         // 2) difese team (concessioni per ruolo)
         const homeAbbr = TEAM_NAME_TO_ABBR[home] || null;
         const awayAbbr = TEAM_NAME_TO_ABBR[away] || null;
 
-        // PARALLELO
-        const pStats = fetchJSON(urlStats, { attempts: 3, signal: abortStats.signal });
-        const pHomeDef = homeAbbr
-          ? fetchJSON(`${apiBase}/team-defense?team=${encodeURIComponent(homeAbbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`, { attempts: 2, signal: abortHome.signal })
-          : Promise.resolve(null);
-        const pAwayDef = awayAbbr
-          ? fetchJSON(`${apiBase}/team-defense?team=${encodeURIComponent(awayAbbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`, { attempts: 2, signal: abortAway.signal })
-          : Promise.resolve(null);
-
-        const [statsRes, homeDefRes, awayDefRes] = await Promise.allSettled([pStats, pHomeDef, pAwayDef]);
-
-        if (statsRes.status !== "fulfilled") {
-          throw statsRes.reason || new Error("stats failed");
+        let defHomeTeam = null, defAwayTeam = null;
+        if (homeAbbr) {
+          const u = `/api/team-defense?team=${encodeURIComponent(homeAbbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
+          const d = await fetch(u, { cache: "no-store" });
+          if (!d.ok) throw new Error(`team-defense(home) HTTP ${d.status}`);
+          defHomeTeam = await d.json();
         }
-        const players = Array.isArray(statsRes.value) ? statsRes.value : [];
+        if (abort) return;
 
-        const _homeDef = homeDefRes.status === "fulfilled" ? homeDefRes.value : null;
-        const _awayDef = awayDefRes.status === "fulfilled" ? awayDefRes.value : null;
+        if (awayAbbr) {
+          const u2 = `/api/team-defense?team=${encodeURIComponent(awayAbbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
+          const d2 = await fetch(u2, { cache: "no-store" });
+          if (!d2.ok) throw new Error(`team-defense(away) HTTP ${d2.status}`);
+          defAwayTeam = await d2.json();
+        }
+        if (abort) return;
 
-        setHomeDef(_homeDef);
-        setAwayDef(_awayDef);
+        setHomeDef(defHomeTeam);
+        setAwayDef(defAwayTeam);
 
-        const enriched = players.map(p => {
+        // 1) giocatori
+        let urlStats = `/api/stats?home=${encodeURIComponent(home||"")}&away=${encodeURIComponent(away||"")}&season=${encodeURIComponent(season)}`;
+        let res = await fetch(urlStats, { cache: "no-store" });
+        if (!res.ok) {
+          // fallback in caso il backend ignori i parametri
+          res = await fetch(`${apiBase}/stats`, { cache: "no-store" });
+        }
+        if (!res.ok) throw new Error(`stats HTTP ${res.status}`);
+        const players = await res.json();
+        if (abort) return;
+
+       
+
+        // 3) arricchisci i giocatori con under/ratio/bounce (opp = difesa dell’AVVERSARIO)
+        const enriched = (Array.isArray(players) ? players : []).map(p => {
           const bucket = toBucket(p.position);
-          const opp = p.side === "away" ? _homeDef : _awayDef;
+          const oppDef = p.side === "away" ? homeDef /* casa è il suo avversario */ : awayDef;
+          // sopra usiamo state prefetch? meglio usare quelle appena fetchate:
+          const opp = p.side === "away" ? defHomeTeam : defAwayTeam;
 
           const up_pts = statUnderPct(p, "PTS");
           const up_reb = statUnderPct(p, "REB");
@@ -157,24 +152,19 @@ export default function SmartStatistics({
           };
         });
 
-        setRows(enriched);
-        lastSuccessfulKeyRef.current = fetchKey;
+        if (!abort) setRows(enriched);
       } catch (e) {
-        setErr(e.message || String(e));
+        if (!abort) setErr(e.message || String(e));
       } finally {
-        setLoading(false);
-        isFetchingRef.current = false;
+        if (!abort) setLoading(false);
       }
-    })();
-
-    return () => {
-      abortStats.abort();
-      abortHome.abort();
-      abortAway.abort();
-    };
+    }
+    run();
+    return () => { abort = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchKey]);
+  }, [apiBase, home, away, season, lastN]);
 
+  // ---- UI helpers ----
   const roles = useMemo(() => {
     const s = new Set();
     rows.forEach(r => { const p=(r.position||"").trim(); if(p) s.add(p); });
@@ -304,33 +294,45 @@ export default function SmartStatistics({
     );
   };
 
+  // shortlist in alto
   const summaryTop = useMemo(() => {
     const best = (key) => [...rows].sort((a,b)=>(b?.bounce_score?.[key]||0)-(a?.bounce_score?.[key]||0)).slice(0,4);
     return { PTS: best("PTS"), REB: best("REB"), AST: best("AST") };
   }, [rows]);
 
-  // Modal helpers (RIPRISTINATO)
+  // ----- Modal helpers -----
   const openTeamModal = async (teamName) => {
     if (!teamName) return;
-    const ABBR = TEAM_NAME_TO_ABBR[teamName] || null;
+    const abbr = TEAM_NAME_TO_ABBR[teamName] || null;
     setModalTeamName(teamName);
-    setModalTeamAbbr(ABBR);
+    setModalTeamAbbr(abbr);
     setModalOpen(true);
     setModalErr(null);
 
-    if (!ABBR) { setModalData(null); return; }
+    // prova a riusare ciò che abbiamo già
+    if (abbr && home && abbr === TEAM_NAME_TO_ABBR[home] && homeDef) {
+      setModalData(homeDef);
+      return;
+    }
+    if (abbr && away && abbr === TEAM_NAME_TO_ABBR[away] && awayDef) {
+      setModalData(awayDef);
+      return;
+    }
 
-    try {
-      setModalLoading(true);
-      const url = `${apiBase}/team-defense?team=${encodeURIComponent(ABBR)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
-      const r = await fetch(url, { cache: "no-store" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const json = await r.json();
-      setModalData(json);
-    } catch (e) {
-      setModalErr(e.message || String(e));
-    } finally {
-      setModalLoading(false);
+    // altrimenti fetch al volo
+    if (abbr) {
+      try {
+        setModalLoading(true);
+        const u = `${apiBase}/team-defense?team=${encodeURIComponent(abbr)}&season=${encodeURIComponent(season)}&last_n=${encodeURIComponent(lastN)}`;
+        const r = await fetch(u, { cache: "no-store" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const json = await r.json();
+        setModalData(json);
+      } catch (e) {
+        setModalErr(e.message || String(e));
+      } finally {
+        setModalLoading(false);
+      }
     }
   };
   const closeModal = () => {
@@ -346,9 +348,9 @@ export default function SmartStatistics({
     <div className="p-4">
       <div className="mb-3 rounded-md border p-3 bg-slate-50 text-sm text-slate-700">
         <div className="font-semibold mb-1">Come leggere</div>
-        <div>• <b>under%</b> = (Ultima − media delle <i>precedenti</i> 5) / media.</div>
-        <div>• <b>ratio</b> = concessioni avversario per il tuo <i>ruolo</i> / media concessioni su tutti i ruoli.</div>
-        <div>• <b>bounce</b> = max(0, −under) × max(0, ratio − 1).</div>
+        <div>• <b>under%</b> = (Ultima − media delle <i>precedenti</i> 5) / media. Negativo ⇒ è andato sotto.</div>
+        <div>• <b>ratio</b> = concessioni dell’avversario per il tuo <i>ruolo</i> / media concessioni tra i ruoli dello stesso avversario. &gt;1 ⇒ matchup morbido.</div>
+        <div>• <b>bounce</b> = max(0, −under) × max(0, ratio − 1) — alto se è appena andato sotto e il matchup è favorevole.</div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -366,15 +368,8 @@ export default function SmartStatistics({
         <button onClick={()=>setSortDir(d=>d==="asc"?"desc":"asc")} className="px-3 py-2 border rounded-md bg-white">
           {sortDir==="asc"?"↑ Asc":"↓ Desc"}
         </button>
-        <button
-          onClick={()=>{
-            lastSuccessfulKeyRef.current=null;
-            setRows([]); setHomeDef(null); setAwayDef(null);
-          }}
-          disabled={loading}
-          className="px-3 py-2 bg-sky-600 text-white rounded-md"
-        >
-          {loading ? "Carico..." : "Riprova"}
+        <button onClick={()=>window.location.reload()} disabled={loading} className="px-3 py-2 bg-sky-600 text-white rounded-md">
+          {loading ? "Carico..." : "Refresh"}
         </button>
         {err && <div className="text-sm text-red-600 ml-2">Errore: {err}</div>}
       </div>
@@ -394,26 +389,26 @@ export default function SmartStatistics({
         ))}
       </div>
 
-      {/* GRIGLIA con link modal (ripristinati) */}
+      {/* GRIGLIA CASA / TRASFERTA con NOME TEAM e MODAL */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <section className="bg-white shadow rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex flex-col">
-              <h3 className="font-semibold text-slate-700">CASA — {home || "Team casa"}</h3>
-              {home && (
-                <button
-                  className="text-xs text-sky-600 underline underline-offset-2 text-left hover:opacity-80"
-                  onClick={() => openTeamModal(home)}
-                  title="Mostra stats concesse per ruolo del team di CASA"
-                >
-                  Vedi concessioni {home}
-                </button>
-              )}
+              <h3 className="font-semibold text-slate-700">
+                CASA — {home || "Team casa"}
+              </h3>
+              <button
+                className="text-xs text-sky-600 underline underline-offset-2 text-left hover:opacity-80"
+                onClick={() => home && openTeamModal(home)}
+                title="Mostra stats concesse per ruolo del team di CASA"
+              >
+                Vedi concessioni {home || "team casa"}
+              </button>
               {away && (
                 <button
                   className="text-xs text-sky-600 underline underline-offset-2 text-left hover:opacity-80 mt-1"
-                  onClick={() => openTeamModal(away)}
-                  title="Mostra stats concesse per ruolo dell'AVVERSARIO"
+                  onClick={() => away && openTeamModal(away)}
+                  title="Mostra stats concesse per ruolo del team AVVERSARIO"
                 >
                   Vedi concessioni avversario: {away}
                 </button>
@@ -430,21 +425,21 @@ export default function SmartStatistics({
         <section className="bg-white shadow rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex flex-col">
-              <h3 className="font-semibold text-slate-700">TRASFERTA — {away || "Team trasferta"}</h3>
-              {away && (
-                <button
-                  className="text-xs text-sky-600 underline underline-offset-2 text-left hover:opacity-80"
-                  onClick={() => openTeamModal(away)}
-                  title="Mostra stats concesse per ruolo del team di TRASFERTA"
-                >
-                  Vedi concessioni {away}
-                </button>
-              )}
+              <h3 className="font-semibold text-slate-700">
+                TRASFERTA — {away || "Team trasferta"}
+              </h3>
+              <button
+                className="text-xs text-sky-600 underline underline-offset-2 text-left hover:opacity-80"
+                onClick={() => away && openTeamModal(away)}
+                title="Mostra stats concesse per ruolo del team di TRASFERTA"
+              >
+                Vedi concessioni {away || "team trasferta"}
+              </button>
               {home && (
                 <button
                   className="text-xs text-sky-600 underline underline-offset-2 text-left hover:opacity-80 mt-1"
-                  onClick={() => openTeamModal(home)}
-                  title="Mostra stats concesse per ruolo dell'AVVERSARIO"
+                  onClick={() => home && openTeamModal(home)}
+                  title="Mostra stats concesse per ruolo del team AVVERSARIO"
                 >
                   Vedi concessioni avversario: {home}
                 </button>

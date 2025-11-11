@@ -104,7 +104,7 @@ def get_matches_today():
 
     return jsonify({"error": "Impossibile recuperare match oggi"}), 500
 
-# Modifica /stats per accettare query params home & away
+# Modifica /stats per accettare query params home & away...
 @app.route("/stats", methods=["GET"])
 def receive_stats():
     # leggi parametri query: /stats?home=Team+Name&away=Other+Team

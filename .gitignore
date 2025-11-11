@@ -9,6 +9,7 @@ nbaenv/
 *.sqlite3
 instance/
 .DS_Store
+cache/
 
 # --- Node / Next.js ---
 node_modules/
