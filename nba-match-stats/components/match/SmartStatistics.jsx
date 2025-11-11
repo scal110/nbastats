@@ -206,10 +206,30 @@ export default function SmartStatistics({
 
   const Pill = ({children, color="gray"}) => {
     const cls = color==="green" ? "bg-green-100 text-green-700" :
-                color==="red"   ? "bg-red-100 text-red-700" :
+                color==="red"   ? "bg-rose-100 text-rose-700" :
                 color==="amber" ? "bg-amber-100 text-amber-700" :
                                   "bg-slate-100 text-slate-700";
     return <span className={`text-[11px] px-1.5 py-0.5 rounded ${cls}`}>{children}</span>;
+  };
+
+  const MetricGauge = ({intensity = 0, tone = "gray", className = ""}) => {
+    const gradients = {
+      green: "from-emerald-400 via-emerald-500 to-emerald-600",
+      red: "from-rose-400 via-rose-500 to-rose-600",
+      amber: "from-amber-300 via-amber-400 to-amber-500",
+      gray: "from-slate-300 via-slate-400 to-slate-500",
+    };
+    const pct = clamp01(intensity) * 100;
+    const gradient = gradients[tone] || gradients.gray;
+    const widthClass = className && /w-/.test(className) ? className : `w-28 ${className}`.trim();
+    return (
+      <div className={`${widthClass} h-1.5 rounded-full bg-slate-200/70 overflow-hidden`}>
+        <div
+          className={`h-full bg-gradient-to-r ${gradient}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    );
   };
 
   const UnderCell = ({label, s, up}) => {
@@ -217,12 +237,16 @@ export default function SmartStatistics({
     const avg = s?.last5_avg ?? "—";
     const upPct = (typeof up==="number") ? (up*100) : 0;
     const col = (typeof up==="number" && up<0) ? "red" : (up>0 ? "green" : "gray");
+    const gaugeIntensity = Math.min(1, Math.abs(upPct) / 40);
     return (
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex flex-col items-end gap-1.5">
         <div className="text-sm font-medium">
           {val} <span className="text-xs text-gray-400">(5prev {avg})</span>
         </div>
-        <Pill color={col}>under% {label}: {upPct.toFixed(0)}%</Pill>
+        <div className="flex flex-col items-end gap-0.5 text-right">
+          <Pill color={col}>under% {label}: {upPct.toFixed(0)}%</Pill>
+          <MetricGauge intensity={gaugeIntensity} tone={col} />
+        </div>
       </div>
     );
   };
@@ -230,10 +254,14 @@ export default function SmartStatistics({
   const MatchupCell = ({label, val, ratio}) => {
     const r = Number(ratio||0);
     const col = r>1.1 ? "green" : r>1.0 ? "amber" : r<0.9 ? "red" : "gray";
+    const gaugeIntensity = Math.min(1, Math.abs(r-1) / 0.35);
     return (
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex flex-col items-end gap-1.5">
         <div className="text-sm font-medium">{val ?? "—"} <span className="text-xs text-gray-400">/g</span></div>
-        <Pill color={col}>ratio {label}: {r.toFixed(2)}</Pill>
+        <div className="flex flex-col items-end gap-0.5 text-right">
+          <Pill color={col}>ratio {label}: {r.toFixed(2)}</Pill>
+          <MetricGauge intensity={gaugeIntensity} tone={col} />
+        </div>
       </div>
     );
   };
@@ -241,19 +269,37 @@ export default function SmartStatistics({
   const BounceCell = ({label, r}) => {
     const b = Number(r?.bounce_score?.[label] ?? 0);
     const col = b>=0.6 ? "green" : b>=0.25 ? "amber" : "gray";
-    return <Pill color={col}>bounce {label}: {b.toFixed(2)}</Pill>;
+    const gaugeIntensity = Math.min(1, b / 1.1);
+    return (
+      <div className="flex flex-col items-end gap-0.5 text-right">
+        <Pill color={col}>bounce {label}: {b.toFixed(2)}</Pill>
+        <MetricGauge intensity={gaugeIntensity} tone={col} />
+      </div>
+    );
   };
 
   const Row = ({r}) => {
+    const weighted = weightedBounceScore(r);
+    const totalTone = weighted>=0.55 ? "green" : weighted>=0.25 ? "amber" : "gray";
+    const totalIntensity = Math.min(1, weighted / 1.2);
     return (
-      <div className="flex items-center justify-between gap-3 p-3 border rounded-md hover:shadow-sm">
-        <div className="flex items-baseline gap-3">
+      <div className="flex flex-col gap-3 p-3 border rounded-md hover:shadow-sm">
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
           <div className="font-medium">{r.player}</div>
-          {r.position && <div className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{r.position}</div>}
-          <div className="text-xs text-gray-500">ruolo: {r.role_bucket}</div>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            {r.position && <div className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{r.position}</div>}
+            <div>ruolo: {r.role_bucket}</div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span className="uppercase tracking-wide">Bounce ponderato</span>
+            <div className="flex flex-col items-end">
+              <span className="text-sm font-semibold text-slate-800">{weighted.toFixed(2)}</span>
+              <MetricGauge intensity={totalIntensity} tone={totalTone} className="w-32" />
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6 overflow-x-auto">
           <div className="flex flex-col items-end">
             <div className="text-xs text-gray-500">MIN</div>
             <div className="text-sm font-medium">
@@ -296,9 +342,17 @@ export default function SmartStatistics({
 
   // shortlist in alto
   const summaryTop = useMemo(() => {
-    const best = (key) => [...rows].sort((a,b)=>(b?.bounce_score?.[key]||0)-(a?.bounce_score?.[key]||0)).slice(0,4);
+    const best = (key) => {
+      const sorted = [...rows];
+      sorted.sort((a, b) => {
+        const bounceDiff = Number(b?.bounce_score?.[key] ?? 0) - Number(a?.bounce_score?.[key] ?? 0);
+        if (Math.abs(bounceDiff) > 1e-4) return bounceDiff;
+        return weightedBounceScore(b) - weightedBounceScore(a);
+      });
+      return sorted.slice(0, 4);
+    };
     return { PTS: best("PTS"), REB: best("REB"), AST: best("AST") };
-  }, [rows]);
+  }, [rows, weightedBounceScore]);
 
   // ----- Modal helpers -----
   const openTeamModal = async (teamName) => {
@@ -379,12 +433,26 @@ export default function SmartStatistics({
         {["PTS","REB","AST"].map(k=>(
           <div key={k} className="bg-white shadow rounded-lg p-3">
             <div className="text-sm font-semibold mb-2">Top bounce {k}</div>
-            {(summaryTop[k]||[]).map(p=>(
-              <div key={p.player} className="text-sm flex items-center justify-between py-1 border-b last:border-0">
-                <span className="truncate mr-2">{p.player} <span className="text-xs text-gray-500">({p.role_bucket})</span></span>
-                <span className="text-xs">→ {Number(p?.bounce_score?.[k]||0).toFixed(2)}</span>
-              </div>
-            ))}
+            {(summaryTop[k]||[]).map(p=>{
+              const bounceVal = Number(p?.bounce_score?.[k] ?? 0);
+              const tone = bounceVal>=0.6 ? "green" : bounceVal>=0.25 ? "amber" : "gray";
+              const weighted = weightedBounceScore(p);
+              return (
+                <div key={`${p.player}-${k}`} className="text-sm flex flex-col gap-1 py-2 border-b last:border-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium text-slate-800">{p.player} <span className="text-xs text-gray-500">({p.role_bucket})</span></span>
+                    <span className="text-xs uppercase text-slate-500">Bounce {k}: <strong className="text-slate-700">{bounceVal.toFixed(2)}</strong></span>
+                  </div>
+                  <MetricGauge intensity={Math.min(1, bounceVal / 1.1)} tone={tone} className="w-full" />
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                    <span>Ultima: {p?.stats?.[k]?.value ?? "—"}</span>
+                    <span>Media 5: {p?.stats?.[k]?.last5_avg ?? "—"}</span>
+                    <span>Min 5: {p?.stats?.MIN?.last5_avg ?? "—"}</span>
+                    <span className="uppercase tracking-wide">Ponderato: {weighted.toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ))}
       </div>
