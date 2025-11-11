@@ -40,6 +40,41 @@ def save_cache(name, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+
+def _cache_suffix(exclude_dnp):
+    return "exdnp" if exclude_dnp else "incldnp"
+
+
+def _team_cache_name(team_abbr, season, exclude_dnp):
+    return f"def_by_pos_box_pergame_{team_abbr}_{season}_{_cache_suffix(exclude_dnp)}.json"
+
+
+def _all_cache_name(season, exclude_dnp):
+    return f"def_by_pos_box_pergame_ALL_{season}_{_cache_suffix(exclude_dnp)}.json"
+
+
+def _load_all_cache(season, exclude_dnp):
+    return load_cache(_all_cache_name(season, exclude_dnp))
+
+
+def _update_all_cache(season, exclude_dnp, team_result, debug=False):
+    team_abbr = (team_result.get("target_team_abbr") or "").upper()
+    if not team_abbr:
+        return
+    cache_name = _all_cache_name(season, exclude_dnp)
+    cached = load_cache(cache_name) or {
+        "season": season,
+        "exclude_dnp": bool(exclude_dnp),
+        "teams": {}
+    }
+    teams_map = cached.setdefault("teams", {})
+    teams_map[team_abbr] = team_result
+    try:
+        save_cache(cache_name, cached)
+    except Exception as exc:
+        if debug:
+            print(f"[cache] unable to update ALL cache {cache_name}: {exc}")
+
 # --- build team maps ---
 def build_team_maps():
     teams_list = teams.get_teams()
@@ -225,8 +260,21 @@ def parse_min_to_float(min_val):
         return None
 
 # --- compute defense by position using boxscore for each game (PER-PARTITA) ---
-def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, exclude_dnp=False, debug=False):
-    cache_name = f"def_by_pos_box_pergame_{target_team_abbr}_{season}.json"
+def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, exclude_dnp=False, debug=False, use_all_cache=True):
+    target_team_abbr = (target_team_abbr or "").upper()
+    if not target_team_abbr:
+        raise ValueError("target_team_abbr must be provided")
+
+    if use_all_cache:
+        all_cached = _load_all_cache(season, exclude_dnp)
+        if all_cached:
+            teams_cached = all_cached.get("teams", {})
+            if target_team_abbr in teams_cached:
+                if debug:
+                    print(f"[cache] loaded {target_team_abbr} from ALL cache")
+                return teams_cached[target_team_abbr]
+
+    cache_name = _team_cache_name(target_team_abbr, season, exclude_dnp)
     cached = load_cache(cache_name)
     if cached and not debug:
         return cached
@@ -394,18 +442,103 @@ def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, excl
     }
 
     save_cache(cache_name, out)
+    _update_all_cache(season, exclude_dnp, out, debug=debug)
     return out
+
+
+def compute_all_teams_defense_by_position_boxscore_per_game(season, exclude_dnp=False, debug=False):
+    cache_name = _all_cache_name(season, exclude_dnp)
+    cached = load_cache(cache_name)
+    if cached:
+        if debug:
+            print(f"[cache] loaded all teams defense {cache_name}")
+        return cached
+
+    _, abbr_to_full, _, _ = build_team_maps()
+    all_results = {
+        "season": season,
+        "exclude_dnp": bool(exclude_dnp),
+        "teams": {}
+    }
+
+    for team_abbr in sorted(abbr_to_full.keys()):
+        try:
+            res = compute_defense_by_position_boxscore_per_game(
+                team_abbr,
+                season,
+                exclude_dnp=exclude_dnp,
+                debug=debug,
+                use_all_cache=False
+            )
+            all_results["teams"][team_abbr.upper()] = res
+        except Exception as exc:
+            if debug:
+                print(f"[all-teams] Failed {team_abbr}: {exc}")
+            time.sleep(0.5)
+
+    save_cache(cache_name, all_results)
+    return all_results
+
+
+def is_all_team_cache_ready(season, exclude_dnp=False):
+    cached = _load_all_cache(season, exclude_dnp)
+    if not cached or not isinstance(cached, dict):
+        return False
+    teams_map = cached.get("teams")
+    if not isinstance(teams_map, dict):
+        return False
+    expected = len({t.get("abbreviation") for t in teams.get_teams() if t.get("abbreviation")})
+    return len(teams_map) >= expected
+
+
+def warm_all_team_caches(season, exclude_dnp=False, debug=False):
+    """Forza la generazione e l'aggiornamento della cache per tutte le squadre."""
+    return compute_all_teams_defense_by_position_boxscore_per_game(season, exclude_dnp=exclude_dnp, debug=debug)
+
+
+def get_team_defense_from_cache(target_team_abbr, season, exclude_dnp=False, debug=False):
+    target_team_abbr = (target_team_abbr or "").upper()
+    if not target_team_abbr:
+        raise ValueError("target_team_abbr must be provided")
+
+    all_cache = _load_all_cache(season, exclude_dnp)
+    if all_cache and isinstance(all_cache.get("teams"), dict):
+        team_data = all_cache["teams"].get(target_team_abbr)
+        if team_data:
+            return team_data
+
+    return compute_defense_by_position_boxscore_per_game(
+        target_team_abbr,
+        season,
+        exclude_dnp=exclude_dnp,
+        debug=debug,
+        use_all_cache=True
+    )
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--season", type=str, default="2025-26")
-    parser.add_argument("--team", type=str, required=True, help="Team abbr (LAL) o parte del nome")
+    parser.add_argument("--team", type=str, help="Team abbr (LAL) o parte del nome")
+    parser.add_argument("--all-teams", action="store_true", help="Calcola la difesa per tutte le squadre")
     parser.add_argument("--save", action="store_true")
     parser.add_argument("--exclude-dnp", action="store_true", help="Esclude righe con MIN null/0")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
     season = args.season
+
+    if args.all_teams:
+        res_all = compute_all_teams_defense_by_position_boxscore_per_game(
+            season,
+            exclude_dnp=args.exclude_dnp,
+            debug=args.debug
+        )
+        print(json.dumps(res_all, indent=2, ensure_ascii=False))
+        return
+
+    if not args.team:
+        parser.error("--team è obbligatorio se non si usa --all-teams")
+
     team_input = args.team
     _, abbr_to_full, id_to_abbr, full_to_abbr = build_team_maps()
     team_abbr = None
@@ -420,10 +553,13 @@ def main():
         print("Team non trovato:", team_input)
         return
 
-    res = compute_defense_by_position_boxscore_per_game(team_abbr, season, exclude_dnp=args.exclude_dnp, debug=args.debug)
+    res = compute_defense_by_position_boxscore_per_game(
+        team_abbr,
+        season,
+        exclude_dnp=args.exclude_dnp,
+        debug=args.debug
+    )
     print(json.dumps(res, indent=2, ensure_ascii=False))
-    if args.save:
-        save_cache(f"def_by_pos_box_pergame_{team_abbr}_{season}.json", res)
 
 if __name__ == "__main__":
     main()
