@@ -2,13 +2,29 @@
 """
 team_defense_by_position_boxscore_pergame.py
 
-Versione aggiornata: media PER PARTITA (non per apparizione).
+Versione aggiornata (2025-11):
+- Calcolo PER PARTITA delle concessioni aggregate per ruolo (G/F/C/OTHER) su PTS/REB/AST.
+- Selezione GAME_ID più robusta: unione di TeamGameLog e LeagueGameFinder, su più season types.
+- Cache dei game id aggiornata (merge incrementale) + opzionale refresh.
+- Scelta della posizione per bucket configurabile: START_POSITION (se disponibile) o POSITION di roster.
+- Parser posizioni più permissivo per ridurre gli "OTHER".
 
 Uso:
-    python team_defense_by_position_boxscore_pergame.py --season 2024-25 --team LAL --save
-Opzioni:
-    --exclude-dnp: esclude giocatori con MIN null/0 (non considerati nel sommarizzo per partita)
-    --debug: stampa info aggiuntive
+    python team_defense_by_position_boxscore_pergame.py --season 2025-26 --team LAL --save
+
+Opzioni principali:
+    --exclude-dnp           Esclude righe con MIN null/0
+    --refresh-games         Ignora la cache dei game id e li ricalcola (consigliato se noti poche partite)
+    --role-mode             Sorgente per ruolo: roster|start|either  [default: either]
+    --season-types          Lista separata da virgole fra: Regular Season,Pre Season,Playoffs [default: Regular Season]
+    --debug                 Log dettagliati
+
+Note sul calcolo:
+- Per ciascuna partita si sommano i PTS/REB/AST dei soli AVVERSARI del team target,
+  raggruppando per bucket (G/F/C/OTHER). Quindi si fa la media sulle partite scansionate.
+- Metriche in output:
+    * *_per_game                  → media per TUTTE le partite scansionate (0 se in una partita il bucket non si presenta)
+    * *_per_game_when_present     → media solo sulle partite dove il bucket è presente
 """
 
 import os
@@ -16,6 +32,7 @@ import time
 import json
 import argparse
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 import pandas as pd
 from nba_api.stats.static import teams
@@ -24,6 +41,8 @@ from nba_api.stats.endpoints import leaguegamefinder
 
 CACHE_DIR = "./cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+# -------------------- Cache helpers --------------------
 
 def load_cache(name):
     path = os.path.join(CACHE_DIR, name)
@@ -45,27 +64,31 @@ def _cache_suffix(exclude_dnp):
     return "exdnp" if exclude_dnp else "incldnp"
 
 
-def _team_cache_name(team_abbr, season, exclude_dnp):
-    return f"def_by_pos_box_pergame_{team_abbr}_{season}_{_cache_suffix(exclude_dnp)}.json"
+def _team_cache_name(team_abbr, season, exclude_dnp, role_mode, season_types_key):
+    role_key = role_mode.lower()
+    return f"def_by_pos_box_pergame_{team_abbr}_{season}_{_cache_suffix(exclude_dnp)}_{role_key}_{season_types_key}.json"
 
 
-def _all_cache_name(season, exclude_dnp):
-    return f"def_by_pos_box_pergame_ALL_{season}_{_cache_suffix(exclude_dnp)}.json"
+def _all_cache_name(season, exclude_dnp, role_mode, season_types_key):
+    role_key = role_mode.lower()
+    return f"def_by_pos_box_pergame_ALL_{season}_{_cache_suffix(exclude_dnp)}_{role_key}_{season_types_key}.json"
 
 
-def _load_all_cache(season, exclude_dnp):
-    return load_cache(_all_cache_name(season, exclude_dnp))
+def _load_all_cache(season, exclude_dnp, role_mode, season_types_key):
+    return load_cache(_all_cache_name(season, exclude_dnp, role_mode, season_types_key))
 
 
-def _update_all_cache(season, exclude_dnp, team_result, debug=False):
+def _update_all_cache(season, exclude_dnp, role_mode, season_types_key, team_result, debug=False):
     team_abbr = (team_result.get("target_team_abbr") or "").upper()
     if not team_abbr:
         return
-    cache_name = _all_cache_name(season, exclude_dnp)
+    cache_name = _all_cache_name(season, exclude_dnp, role_mode, season_types_key)
     cached = load_cache(cache_name) or {
         "season": season,
         "exclude_dnp": bool(exclude_dnp),
-        "teams": {}
+        "role_mode": role_mode,
+        "season_types": season_types_key.split("|"),
+        "teams": {},
     }
     teams_map = cached.setdefault("teams", {})
     teams_map[team_abbr] = team_result
@@ -75,7 +98,8 @@ def _update_all_cache(season, exclude_dnp, team_result, debug=False):
         if debug:
             print(f"[cache] unable to update ALL cache {cache_name}: {exc}")
 
-# --- build team maps ---
+# -------------------- Team maps --------------------
+
 def build_team_maps():
     teams_list = teams.get_teams()
     id_to_full = {}
@@ -93,7 +117,8 @@ def build_team_maps():
             full_to_abbr[full.lower()] = abbr
     return id_to_full, abbr_to_full, id_to_abbr, full_to_abbr
 
-# --- build player -> position map from rosters (cached) ---...
+# -------------------- Player -> position map (roster) --------------------
+
 def build_player_position_map(season, debug=False):
     cache_name = f"player_pos_map_{season}.json"
     cached = load_cache(cache_name)
@@ -103,7 +128,7 @@ def build_player_position_map(season, debug=False):
         return {int(k): v for k, v in cached.items()}
 
     if debug:
-        print("Costruisco player->position map... (scarico roster per squadra)")
+        print("Costruisco player->position map (roster)...")
 
     id_to_full, abbr_to_full, id_to_abbr, full_to_abbr = build_team_maps()
     player_pos = {}
@@ -123,30 +148,89 @@ def build_player_position_map(season, debug=False):
                 player_pos[pid] = pos if pos else "UNK"
         except Exception as e:
             if debug:
-                print(f"Warning roster team_id={team_id}: {e}")
-            time.sleep(0.5)
+                print(f"[roster] Warning team_id={team_id}: {e}")
+            time.sleep(0.4)
 
     save_cache(cache_name, {str(k): v for k, v in player_pos.items()})
     return player_pos
 
+# -------------------- Role helpers --------------------
 
-def get_team_game_ids(team_abbr, season, debug=False):
+def normalize_first_token(pos: str) -> str:
+    raw = (pos or "").upper().strip()
+    if not raw:
+        return "UNK"
+    first = raw.split(r"-")[0]
+    # consenti separatori alternativi
+    first = first.split("/")[0].split(",")[0].split(" ")[0]
+    alias = {
+        "GUARD": "G", "GUA": "G", "W": "F", "WING": "F", "FWD": "F",
+        "FORWARD": "F", "CENTER": "C", "CTR": "C", "BIG": "C",
+        "GF": "G", "FG": "F",
+    }
+    return alias.get(first, first)
+
+
+def to_bucket_from_tokens(token: str) -> str:
+    s = token
+    if s in ("PG", "SG", "G"):
+        return "G"
+    if s in ("SF", "PF", "F"):
+        return "F"
+    if s == "C":
+        return "C"
+    return "OTHER"
+
+
+def choose_bucket(pid, start_pos, roster_pos, role_mode="either") -> str:
+    """Sceglie il bucket da START_POSITION o dal roster in base al role_mode.
+       role_mode =
+         - 'start'  → usa solo START_POSITION (bench → OTHER/UNK)
+         - 'roster' → usa solo roster POSITION
+         - 'either' → preferisci START_POSITION se presente, altrimenti roster
     """
-    Ritorna una lista di GAME_ID per la squadra e stagione richieste.
-    Strategia:
-      1) TeamGameLog con retry, timeout alto e vari season_type_all_star
-      2) Fallback: LeagueGameFinder (team_id + season) -> GAME_ID
+    start_tok = normalize_first_token(start_pos)
+    roster_tok = normalize_first_token(roster_pos)
+
+    if role_mode == "start":
+        return to_bucket_from_tokens(start_tok)
+    if role_mode == "roster":
+        return to_bucket_from_tokens(roster_tok)
+
+    # either
+    primary = start_tok if start_tok not in ("", "UNK") else roster_tok
+    return to_bucket_from_tokens(primary)
+
+# -------------------- Games discovery --------------------
+
+def _games_cache_name(team_abbr, season, season_types_key):
+    return f"team_games_{team_abbr}_{season}_{season_types_key}.json"
+
+
+def _now_iso():
+    return datetime.utcnow().isoformat()
+
+
+def get_team_game_ids(team_abbr, season, season_types, refresh=False, debug=False):
     """
-    cache_name = f"team_games_{team_abbr}_{season}.json"
-    cached = load_cache(cache_name)
-    if cached:
+    Ritorna la lista di GAME_ID per squadra/stagione, unendo:
+      - TeamGameLog per ciascun season type richiesto
+      - LeagueGameFinder come fallback/integrazione
+    
+    La cache viene aggiornata "in crescita" (merge/union). Usa --refresh-games per ignorarla.
+    """
+    season_types_key = "|".join(season_types)
+    cache_name = _games_cache_name(team_abbr, season, season_types_key)
+
+    cached = None if refresh else load_cache(cache_name)
+    if cached and isinstance(cached, dict):
         if debug:
-            print(f"[cache] loaded team games {cache_name}")
-        return cached
-
-    id_to_full, abbr_to_full, id_to_abbr, full_to_abbr = build_team_maps()
+            print(f"[cache] loaded games {cache_name} with {len(cached.get('game_ids', []))} ids")
+    else:
+        cached = {"season": season, "team": team_abbr, "season_types": season_types, "game_ids": [], "updated_at": _now_iso()}
 
     # resolve team_id
+    id_to_full, abbr_to_full, id_to_abbr, full_to_abbr = build_team_maps()
     team_abbr_up = team_abbr.upper()
     team_id = None
     if team_abbr_up in abbr_to_full:
@@ -163,90 +247,64 @@ def get_team_game_ids(team_abbr, season, debug=False):
                         team_id = tid
                         break
                 break
-
     if team_id is None:
         raise ValueError(f"Team {team_abbr} non trovato")
 
-    if debug:
-        print(f"Resolved {team_abbr_up} -> team_id {team_id}")
+    found_ids = set(cached.get("game_ids", []))
 
-    # --- 1) Tentativo con TeamGameLog (diversi season_type) ---
-    season_types = ["Regular Season", "Pre Season", "Playoffs"]
+    # --- TeamGameLog per ciascun season type richiesto ---
     for stype in season_types:
         tries = 3
-        df = None
         for attempt in range(tries):
             try:
-                tgl = teamgamelog.TeamGameLog(
-                    team_id=team_id,
-                    season=season,
-                    season_type_all_star=stype,
-                    timeout=60  # timeout più alto
-                )
+                tgl = teamgamelog.TeamGameLog(team_id=team_id, season=season, season_type_all_star=stype, timeout=60)
                 df = tgl.get_data_frames()[0]
                 if df is not None and not df.empty:
-                    if debug:
-                        print(f"[TeamGameLog] OK season_type={stype}, rows={len(df)}")
-                    # trova colonna GAME_ID
-                    game_id_col = None
+                    gcol = None
                     for c in df.columns:
                         if "GAME_ID" in c:
-                            game_id_col = c
+                            gcol = c
                             break
-                    if not game_id_col:
+                    if not gcol:
                         raise RuntimeError("GAME_ID column missing in TeamGameLog")
-                    game_ids = df[game_id_col].astype(str).tolist()
-                    save_cache(cache_name, game_ids)
-                    return game_ids
-                else:
+                    for gid in df[gcol].astype(str).tolist():
+                        found_ids.add(gid)
                     if debug:
-                        print(f"[TeamGameLog] Vuoto season_type={stype} (tentativo {attempt+1})")
+                        print(f"[TGL] {stype}: +{len(df)} rows (total ids {len(found_ids)})")
+                break
             except Exception as e:
                 if debug:
-                    print(f"[TeamGameLog] attempt {attempt+1} season_type={stype} error: {e}")
-                time.sleep(1.5)
+                    print(f"[TGL] attempt {attempt+1} season_type={stype} error: {e}")
+                time.sleep(1.2)
 
-    # --- 2) Fallback con LeagueGameFinder ---
-    if debug:
-        print("[Fallback] Provo LeagueGameFinder...")
+    # --- LeagueGameFinder integrazione ---
     try:
-        lgf = leaguegamefinder.LeagueGameFinder(
-            team_id_nullable=team_id,
-            season_nullable=season,
-            timeout=60
-        )
+        lgf = leaguegamefinder.LeagueGameFinder(team_id_nullable=team_id, season_nullable=season, timeout=60)
         df_lgf = lgf.get_data_frames()[0]
         if df_lgf is not None and not df_lgf.empty:
-            # In LGF la colonna GAME_ID è tipicamente 'GAME_ID'
-            if "GAME_ID" not in df_lgf.columns:
-                # trova un nome compatibile
-                gcol = None
-                for c in df_lgf.columns:
-                    if "GAME_ID" in c:
-                        gcol = c
-                        break
-                if not gcol:
-                    raise RuntimeError("GAME_ID column missing in LeagueGameFinder")
-            else:
-                gcol = "GAME_ID"
-            # LGF spesso ritorna anche preseason/playoff: tienili tutti oppure filtra se vuoi
-            game_ids = df_lgf[gcol].astype(str).unique().tolist()
+            gcol = "GAME_ID" if "GAME_ID" in df_lgf.columns else next((c for c in df_lgf.columns if "GAME_ID" in c), None)
+            if not gcol:
+                raise RuntimeError("GAME_ID column missing in LeagueGameFinder")
+            for gid in df_lgf[gcol].astype(str).unique().tolist():
+                found_ids.add(gid)
             if debug:
-                print(f"[LeagueGameFinder] OK rows={len(df_lgf)} games={len(game_ids)}")
-            save_cache(cache_name, game_ids)
-            return game_ids
-        else:
-            if debug:
-                print("[LeagueGameFinder] Nessun risultato")
+                print(f"[LGF] merged ids → {len(found_ids)}")
     except Exception as e:
         if debug:
-            print("[LeagueGameFinder] errore:", e)
+            print("[LGF] errore:", e)
 
-    # Se siamo qui, niente ha funzionato
-    raise RuntimeError("Impossibile ottenere team game log (TeamGameLog e LeagueGameFinder falliti)")
+    # ordina i game id (stringhe) per cronologia approssimativa
+    game_ids_sorted = sorted(found_ids)
 
+    # aggiorna cache
+    cached["game_ids"] = game_ids_sorted
+    cached["updated_at"] = _now_iso()
+    save_cache(cache_name, cached)
 
-# --- parse minutes field (supporta "MM:SS" or float/int) ---
+    return game_ids_sorted
+
+# -------------------- Utility --------------------
+
 def parse_min_to_float(min_val):
     try:
         if pd.isna(min_val):
@@ -259,14 +317,26 @@ def parse_min_to_float(min_val):
     except Exception:
         return None
 
-# --- compute defense by position using boxscore for each game (PER-PARTITA) ---
-def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, exclude_dnp=False, debug=False, use_all_cache=True):
+# -------------------- Core computation --------------------
+
+def compute_defense_by_position_boxscore_per_game(
+    target_team_abbr,
+    season,
+    exclude_dnp=False,
+    role_mode="either",
+    season_types=("Regular Season",),
+    refresh_games=False,
+    debug=False,
+    use_all_cache=True,
+):
     target_team_abbr = (target_team_abbr or "").upper()
     if not target_team_abbr:
         raise ValueError("target_team_abbr must be provided")
 
+    season_types_key = "|".join(season_types)
+
     if use_all_cache:
-        all_cached = _load_all_cache(season, exclude_dnp)
+        all_cached = _load_all_cache(season, exclude_dnp, role_mode, season_types_key)
         if all_cached:
             teams_cached = all_cached.get("teams", {})
             if target_team_abbr in teams_cached:
@@ -274,22 +344,22 @@ def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, excl
                     print(f"[cache] loaded {target_team_abbr} from ALL cache")
                 return teams_cached[target_team_abbr]
 
-    cache_name = _team_cache_name(target_team_abbr, season, exclude_dnp)
+    cache_name = _team_cache_name(target_team_abbr, season, exclude_dnp, role_mode, season_types_key)
     cached = load_cache(cache_name)
-    if cached and not debug:
+    if cached and not debug and not refresh_games:
         return cached
 
     player_pos_map = build_player_position_map(season, debug=debug)
 
-    # totals across games (sum of per-game sums)
     totals = defaultdict(lambda: {"PTS_sum": 0.0, "REB_sum": 0.0, "AST_sum": 0.0, "games_with_bucket": 0})
     games_scanned = 0
-    game_ids = get_team_game_ids(target_team_abbr, season, debug=debug)
+
+    game_ids = get_team_game_ids(target_team_abbr, season, list(season_types), refresh=refresh_games, debug=debug)
     if debug:
-        print(f"Found {len(game_ids)} games for {target_team_abbr} in {season}")
+        print(f"Found {len(game_ids)} games for {target_team_abbr} in {season} [{', '.join(season_types)}]")
 
     for gi in game_ids:
-        # fetch boxscore (cached)
+        # boxscore cache (per partita)
         box_cache_name = f"box_{gi}.json"
         box_cached = load_cache(box_cache_name) if not debug else None
         df_players = None
@@ -303,50 +373,39 @@ def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, excl
             tries = 3
             for attempt in range(tries):
                 try:
-                    bs = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=gi)
+                    bs = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=gi, timeout=60)
                     df_players = bs.get_data_frames()[0]
                     break
                 except Exception as e:
                     if debug:
-                        print(f"Boxscore attempt {attempt+1} for game {gi} failed: {e}")
+                        print(f"[Boxscore] attempt {attempt+1} for game {gi} failed: {e}")
                     time.sleep(1)
             if df_players is None:
                 if debug:
-                    print("Skipping game", gi)
+                    print("[Boxscore] Skipping game", gi)
                 continue
             try:
                 save_cache(box_cache_name, df_players.to_dict(orient="records"))
             except Exception:
                 pass
 
-        # determine team abbrev column name
-        team_abbr_col = None
-        for c in df_players.columns:
-            if c.upper() in ("TEAM_ABBREVIATION","TEAMABBREVIATION","TEAM_ACRONYM"):
-                team_abbr_col = c
-                break
+        # colonne
+        team_abbr_col = next((c for c in df_players.columns if c.upper() in ("TEAM_ABBREVIATION","TEAMABBREVIATION","TEAM_ACRONYM")), None)
+        start_pos_col = next((c for c in df_players.columns if c.upper() == "START_POSITION"), None)
 
-        # per-game sums by bucket
         per_game_bucket = defaultdict(lambda: {"PTS": 0.0, "REB": 0.0, "AST": 0.0})
-
         targ = target_team_abbr.upper()
 
-        # iterate rows and sum opponent players' stats grouped by bucket for this game
         for _, prow in df_players.iterrows():
-            row_team_abbr = None
-            if team_abbr_col:
-                row_team_abbr = (prow.get(team_abbr_col) or "").upper()
-
-            # skip players of the target team (noi vogliamo i giocatori avversari)
+            row_team_abbr = (prow.get(team_abbr_col) or "").upper() if team_abbr_col else None
             if row_team_abbr == targ:
-                continue
+                continue  # consideriamo solo gli AVVERSARI
 
-            # parse minutes and DNP policy
+            # DNP policy
             min_raw = prow.get("MIN")
             min_float = parse_min_to_float(min_raw)
-            if exclude_dnp:
-                if (min_float is None) or (min_float == 0):
-                    continue
+            if exclude_dnp and (min_float is None or min_float == 0):
+                continue
 
             # pid
             pid = prow.get("PLAYER_ID")
@@ -358,38 +417,25 @@ def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, excl
                 continue
 
             # stats
-            try:
-                pts = float(prow.get("PTS")) if pd.notnull(prow.get("PTS")) else 0.0
-            except Exception:
-                pts = 0.0
-            try:
-                reb = float(prow.get("REB")) if pd.notnull(prow.get("REB")) else 0.0
-            except Exception:
-                reb = 0.0
-            try:
-                ast = float(prow.get("AST")) if pd.notnull(prow.get("AST")) else 0.0
-            except Exception:
-                ast = 0.0
+            def _flt(x):
+                try:
+                    return float(x) if pd.notnull(x) else 0.0
+                except Exception:
+                    return 0.0
+            pts = _flt(prow.get("PTS"))
+            reb = _flt(prow.get("REB"))
+            ast = _flt(prow.get("AST"))
 
-            pos = player_pos_map.get(pid, "UNK")
-            pos_simple = pos.split("-")[0].upper() if pos else "UNK"
-            if pos_simple in ("PG","SG","G"):
-                bucket = "G"
-            elif pos_simple in ("SF","PF","F"):
-                bucket = "F"
-            elif pos_simple == "C":
-                bucket = "C"
-            else:
-                bucket = "OTHER"
+            start_pos = (prow.get(start_pos_col) or "") if start_pos_col else ""
+            roster_pos = player_pos_map.get(pid, "UNK")
+            bucket = choose_bucket(pid, start_pos, roster_pos, role_mode=role_mode)
 
             per_game_bucket[bucket]["PTS"] += pts
             per_game_bucket[bucket]["REB"] += reb
             per_game_bucket[bucket]["AST"] += ast
 
-        # after iterating rows for this game
-        # increment global totals: sum per bucket across games
         if len(per_game_bucket) == 0:
-            # no opponent rows? skip
+            # nessun avversario? (non dovrebbe succedere) → skip
             continue
 
         games_scanned += 1
@@ -399,7 +445,7 @@ def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, excl
             totals[bucket]["AST_sum"] += vals["AST"]
             totals[bucket]["games_with_bucket"] += 1
 
-    # compute averages per game (divide by games_scanned) and per-game when present (divide by games_with_bucket)
+    # medie
     result = {}
     for bucket, vals in totals.items():
         games_with = vals["games_with_bucket"]
@@ -423,33 +469,37 @@ def compute_defense_by_position_boxscore_per_game(target_team_abbr, season, excl
             "total_ast_sum": round(vals["AST_sum"], 2),
             "games_with_bucket": int(games_with),
             "games_scanned": int(games_scanned),
-            "pts_per_game": pts_per_game,               # media su tutte le partite
+            "pts_per_game": pts_per_game,
             "reb_per_game": reb_per_game,
             "ast_per_game": ast_per_game,
-            "pts_per_game_when_present": pts_when,      # media solo sulle partite dove il bucket era presente
+            "pts_per_game_when_present": pts_when,
             "reb_per_game_when_present": reb_when,
-            "ast_per_game_when_present": ast_when
+            "ast_per_game_when_present": ast_when,
         }
 
     out = {
         "target_team_abbr": target_team_abbr,
         "season": season,
+        "season_types": list(season_types),
+        "role_mode": role_mode,
         "by_position_per_game": result,
         "meta": {
             "games_scanned": int(games_scanned),
-            "exclude_dnp": bool(exclude_dnp)
-        }
+            "exclude_dnp": bool(exclude_dnp),
+        },
     }
 
     save_cache(cache_name, out)
-    _update_all_cache(season, exclude_dnp, out, debug=debug)
+    _update_all_cache(season, exclude_dnp, role_mode, season_types_key, out, debug=debug)
     return out
 
+# -------------------- All teams --------------------
 
-def compute_all_teams_defense_by_position_boxscore_per_game(season, exclude_dnp=False, debug=False):
-    cache_name = _all_cache_name(season, exclude_dnp)
+def compute_all_teams_defense_by_position_boxscore_per_game(season, exclude_dnp=False, role_mode="either", season_types=("Regular Season",), refresh_games=False, debug=False):
+    season_types_key = "|".join(season_types)
+    cache_name = _all_cache_name(season, exclude_dnp, role_mode, season_types_key)
     cached = load_cache(cache_name)
-    if cached:
+    if cached and not refresh_games:
         if debug:
             print(f"[cache] loaded all teams defense {cache_name}")
         return cached
@@ -458,7 +508,9 @@ def compute_all_teams_defense_by_position_boxscore_per_game(season, exclude_dnp=
     all_results = {
         "season": season,
         "exclude_dnp": bool(exclude_dnp),
-        "teams": {}
+        "role_mode": role_mode,
+        "season_types": list(season_types),
+        "teams": {},
     }
 
     for team_abbr in sorted(abbr_to_full.keys()):
@@ -467,21 +519,25 @@ def compute_all_teams_defense_by_position_boxscore_per_game(season, exclude_dnp=
                 team_abbr,
                 season,
                 exclude_dnp=exclude_dnp,
+                role_mode=role_mode,
+                season_types=season_types,
+                refresh_games=refresh_games,
                 debug=debug,
-                use_all_cache=False
+                use_all_cache=False,
             )
             all_results["teams"][team_abbr.upper()] = res
         except Exception as exc:
             if debug:
                 print(f"[all-teams] Failed {team_abbr}: {exc}")
-            time.sleep(0.5)
+            time.sleep(0.4)
 
     save_cache(cache_name, all_results)
     return all_results
 
 
-def is_all_team_cache_ready(season, exclude_dnp=False):
-    cached = _load_all_cache(season, exclude_dnp)
+def is_all_team_cache_ready(season, exclude_dnp=False, role_mode="either", season_types=("Regular Season",)):
+    season_types_key = "|".join(season_types)
+    cached = _load_all_cache(season, exclude_dnp, role_mode, season_types_key)
     if not cached or not isinstance(cached, dict):
         return False
     teams_map = cached.get("teams")
@@ -491,17 +547,24 @@ def is_all_team_cache_ready(season, exclude_dnp=False):
     return len(teams_map) >= expected
 
 
-def warm_all_team_caches(season, exclude_dnp=False, debug=False):
-    """Forza la generazione e l'aggiornamento della cache per tutte le squadre."""
-    return compute_all_teams_defense_by_position_boxscore_per_game(season, exclude_dnp=exclude_dnp, debug=debug)
+def warm_all_team_caches(season, exclude_dnp=False, role_mode="either", season_types=("Regular Season",), refresh_games=False, debug=False):
+    return compute_all_teams_defense_by_position_boxscore_per_game(
+        season,
+        exclude_dnp=exclude_dnp,
+        role_mode=role_mode,
+        season_types=season_types,
+        refresh_games=refresh_games,
+        debug=debug,
+    )
 
 
-def get_team_defense_from_cache(target_team_abbr, season, exclude_dnp=False, debug=False):
+def get_team_defense_from_cache(target_team_abbr, season, exclude_dnp=False, role_mode="either", season_types=("Regular Season",), refresh_games=False, debug=False):
     target_team_abbr = (target_team_abbr or "").upper()
     if not target_team_abbr:
         raise ValueError("target_team_abbr must be provided")
 
-    all_cache = _load_all_cache(season, exclude_dnp)
+    season_types_key = "|".join(season_types)
+    all_cache = _load_all_cache(season, exclude_dnp, role_mode, season_types_key)
     if all_cache and isinstance(all_cache.get("teams"), dict):
         team_data = all_cache["teams"].get(target_team_abbr)
         if team_data:
@@ -511,9 +574,33 @@ def get_team_defense_from_cache(target_team_abbr, season, exclude_dnp=False, deb
         target_team_abbr,
         season,
         exclude_dnp=exclude_dnp,
+        role_mode=role_mode,
+        season_types=season_types,
+        refresh_games=refresh_games,
         debug=debug,
-        use_all_cache=True
+        use_all_cache=True,
     )
+
+# -------------------- CLI --------------------
+
+def parse_season_types(s: str):
+    if not s:
+        return ("Regular Season",)
+    # consenti alias brevi
+    parts = [p.strip() for p in s.split(",") if p.strip()]
+    normalized = []
+    for p in parts:
+        up = p.lower()
+        if up in ("rs", "regular", "regular season"):
+            normalized.append("Regular Season")
+        elif up in ("ps", "pre", "pre season", "preseason"):
+            normalized.append("Pre Season")
+        elif up in ("po", "playoff", "playoffs"):
+            normalized.append("Playoffs")
+        else:
+            normalized.append(p)
+    return tuple(dict.fromkeys(normalized))  # dedupe preserving order
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -522,16 +609,24 @@ def main():
     parser.add_argument("--all-teams", action="store_true", help="Calcola la difesa per tutte le squadre")
     parser.add_argument("--save", action="store_true")
     parser.add_argument("--exclude-dnp", action="store_true", help="Esclude righe con MIN null/0")
+    parser.add_argument("--refresh-games", action="store_true", help="Ignora la cache dei game id e ricalcola")
+    parser.add_argument("--role-mode", type=str, default="either", choices=["roster","start","either"], help="Sorgente per ruolo")
+    parser.add_argument("--season-types", type=str, default="Regular Season", help="Lista separata da virgole fra: Regular Season,Pre Season,Playoffs")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
     season = args.season
+    role_mode = args.role_mode
+    season_types = parse_season_types(args.season_types)
 
     if args.all_teams:
         res_all = compute_all_teams_defense_by_position_boxscore_per_game(
             season,
             exclude_dnp=args.exclude_dnp,
-            debug=args.debug
+            role_mode=role_mode,
+            season_types=season_types,
+            refresh_games=args.refresh_games,
+            debug=args.debug,
         )
         print(json.dumps(res_all, indent=2, ensure_ascii=False))
         return
@@ -557,9 +652,14 @@ def main():
         team_abbr,
         season,
         exclude_dnp=args.exclude_dnp,
-        debug=args.debug
+        role_mode=role_mode,
+        season_types=season_types,
+        refresh_games=args.refresh_games,
+        debug=args.debug,
     )
+
     print(json.dumps(res, indent=2, ensure_ascii=False))
+
 
 if __name__ == "__main__":
     main()
